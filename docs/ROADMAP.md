@@ -1,0 +1,12 @@
+# Roadmap
+
+The current repository is a working alpha. Everything below is planned work, not a current feature or a promised delivery date.
+
+1. **Harden and validate the core.** Independent review, malformed-input fuzzing, broader ecosystem fixtures, resource isolation, MCP compatibility testing with real clients, and testing against legitimate repositories to measure false positives.
+2. **Authenticated data-only intelligence updates.** Publish small declarative rule bundles, never arbitrary Python or shell plugins. Use an established signed metadata system such as TUF, pinned trust roots, threshold signatures, expiration, version/rollback protections, strict size/schema validation, atomic activation, and last-known-good state. Surface stale/expired intelligence in every relevant verdict. Client updaters may use a maintained dependency: do not hand-roll cryptography to preserve a zero-dependency marketing claim. Distribute executable upgrades separately with reviewed releases and provenance.
+3. **Less intrusive execution review.** Build an execution broker that binds approval to a command, workspace snapshot, and dependency state. Isolate actual execution at the OS/container layer. Avoid reusing a clean verdict merely because a lockfile is unchanged.
+4. **Broader dependency support.** pnpm/Yarn/Bun, richer Python requirements and PEP 751, manifest-to-lock consistency, installed artifact hashing, provenance attestations, direct/transitive attribution, and fixed-version guidance.
+5. **Optional deeper analyzers.** Explicitly configured, pinned adapters for established SCA/SAST/secret scanners. Run them in isolation and normalize bounded findings. Never download and execute an arbitrary scanner suggested by the target repository.
+6. **Community releases.** Publish versioned artifacts and checksums, release notes, maintainer/review practices, a contribution policy for sourced indicators, and reproducible benchmarks. Add GitHub CI/SARIF output once result schemas stabilize.
+
+An LLM review tier may be useful for difficult findings, but it should be optional, visibly metered, and isolated from enforcement policy. No LLM judge or paid service is needed for the current scanner.

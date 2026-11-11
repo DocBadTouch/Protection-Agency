@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/python3",
+            "args": ["-I", "/trusted/protection-agency/guard.py", "hook", "--online"],
+            "timeout": 90
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/python3",
+            "args": ["-I", "/trusted/protection-agency/guard.py", "hook", "--online"],
+            "timeout": 90,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
+}

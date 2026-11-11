@@ -1,0 +1,44 @@
+import argparse
+import json
+from pathlib import Path
+import sys
+
+from . import __version__
+from .policy import check_command
+from .scanner import Scanner
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(prog="protection-agency", description="Your agent needs an agency. Read-only security screening; never a safety guarantee.")
+    parser.add_argument("--version", action="version", version=__version__)
+    commands = parser.add_subparsers(dest="subcommand", required=True)
+    scan = commands.add_parser("scan", help="Screen a project without executing its code")
+    scan.add_argument("root", type=Path)
+    scan.add_argument("--level", choices=["quick", "standard", "deep"], default="standard")
+    scan.add_argument("--online", action="store_true", help="Opt in to sending eligible package names/versions to OSV")
+    scan.add_argument("--full", action="store_true", help="Include all finding details")
+    server = commands.add_parser("serve", help="Start a workspace-scoped MCP stdio server")
+    server.add_argument("--root", type=Path, required=True)
+    server.add_argument("--online", action="store_true")
+    hook = commands.add_parser("hook", help="Read a Claude SessionStart or PreToolUse event on stdin")
+    hook.add_argument("--online", action="store_true")
+    check = commands.add_parser("check-command", help="Classify a command as text; never execute it")
+    check.add_argument("command")
+    args = parser.parse_args(argv)
+    try:
+        if args.subcommand == "scan":
+            report = Scanner(args.root, online=args.online).scan(args.level)
+            print(json.dumps(report.full() if args.full else report.summary(), indent=2))
+            return {"no_findings": 0, "block": 1, "review": 2}[report.decision]
+        if args.subcommand == "serve":
+            from .mcp import serve
+            return serve(Scanner(args.root, online=args.online))
+        if args.subcommand == "hook":
+            from .hooks import run
+            return run(online=args.online)
+        verdict = check_command(args.command)
+        print(json.dumps(verdict))
+        return {"no_objection": 0, "deny": 1, "ask": 2}[verdict["decision"]]
+    except (OSError, ValueError):
+        print("Protection Agency could not complete the check; no safety result asserted.", file=sys.stderr)
+        return 3

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "protection-agency": {
+      "command": "/absolute/path/to/python3",
+      "args": ["-I", "/trusted/protection-agency/guard.py", "serve", "--root", "/absolute/path/to/project", "--online"]
+    }
+  }
+}
