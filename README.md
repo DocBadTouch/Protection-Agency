@@ -8,6 +8,8 @@ Local security screening for coding agents, created by [DocBadTouch](https://git
 
 The `0.2.0a1` development prerelease adds proposed-dependency checks, inventory consistency checks, startup-configuration review, documentation context, and offline diagnostics. See [the changelog](CHANGELOG.md).
 
+The `0.2.0a2` development prerelease adds a user-invoked **pre-launch gate**: inspect first, stop on incomplete/high-priority results, optionally review lower-priority findings, recheck selected content, then start an explicitly chosen trusted client. It does not provide a sandbox.
+
 ## What works today
 
 - Read npm lockfiles v2/v3, npm shrinkwrap, exact npm manifest pins, `uv.lock`, `poetry.lock`, exact Python requirements pins, and exact PEP 621 manifest pins.
@@ -79,6 +81,32 @@ The command adapter recognizes simple npm/pnpm/yarn/bun install/add commands, np
 
 **Doctor does not certify that a live client has installed or enforced the hook.** It reports `live_client_enforcement: not_verified`. Verify the actual client, hook order, failure behavior, and sandbox separately before relying on them.
 
+## Gate agent startup before the client starts
+
+Use a trusted scanner installation outside the inspected project and an already installed, trusted client executable outside that project. Python `-I` and an absolute executable path are required. Separate client arguments with `--`:
+
+```bash
+python3 -I /trusted/protection-agency/guard.py launch --online --dry-run /path/to/project -- /absolute/path/to/claude
+python3 -I /trusted/protection-agency/guard.py launch --online /path/to/project -- /absolute/path/to/claude
+python3 -I /trusted/protection-agency/guard.py launch --online --review /path/to/project -- /absolute/path/to/claude
+```
+
+These examples name a client; the launcher does not download or install it. `--dry-run` prints a preflight receipt and never starts a client. A later real launch always inspects again. Normal launch emits preflight JSON on stderr and leaves the client's stdout/stdin available for normal use. Child arguments are passed directly with `shell=False`, without shell expansion.
+
+The gate runs a standard project scan plus a bounded inspection of selected Git startup metadata. By default, findings requiring review stop the launch. `--review` permits a one-time, randomly generated terminal challenge for **at most 50 lower-priority findings**, only when requested coverage and advisories completed. It displays all reviewable finding metadata before the challenge. Piped approval, an automatic yes flag, saved approval receipts, high-priority findings, incomplete/offline advisory checks, and coverage gaps cannot authorize a launch. This is an explicit caller review step, not proof that the project is safe or that the terminal operator is human.
+
+Before starting the client, the launcher rereads selected project content and Git metadata, compares fingerprints and static findings, and checks project-directory/client-file identity. Source edits, added startup files, changed Git hook permissions, root replacement, ordinary executable changes, or a preflight older than five minutes stop the launch. Fingerprints cover the declared scope. They do not freeze the filesystem, verify all client dependencies, or prevent changes after the final check.
+
+The launch-only Git check reads a regular root `.git/config` (up to 256 KiB) and up to 128 hook-directory entries (64 KiB per inspected non-sample file). Known executable helpers and executable hooks require review. Symlinks, indirect/shared Git directories, per-worktree configuration, custom hook paths, config includes, ambiguous duplicate Git configuration, and unreadable/over-budget metadata produce coverage gaps. Git itself and its hooks are never run during inspection. Normal scans continue to exclude Git metadata.
+
+Known agent/editor startup settings above the selected root also produce a gap; select the intended project root that includes them. User-home and other trusted global/client configuration remain part of the trusted setup. Additional client workspaces or arbitrary configuration paths supplied in client arguments need separate review; this generic launcher does not reproduce every client's settings precedence.
+
+The child environment removes known interpreter/shell/dynamic-loader injection variables, exported Bash functions, and known Git executable overrides. `PATH` keeps only existing absolute directories outside the project. Known executable Git environment-config entries are removed while remaining transport/auth entries keep their values. Proxy, CA trust, authentication, and other ordinary environment values are preserved; values and client arguments are not printed. Global configuration environment paths cannot point inside the project or be relative. Sanitization affects only the child environment and is not a credential or process sandbox.
+
+Before any client starts, guard exits are `1` for high-priority findings, `2` for review/incomplete/changed/expired checks, `3` for check/start errors, and `130` for interruption. Once a client runs, its exit status is returned, so those codes can overlap client exit codes; the preflight's `execution` field distinguishes the phases.
+
+**The running client is not isolated by this launcher.** Use an appropriate OS/client sandbox, minimal credentials, and runtime permissions. This gate cannot undo IDE startup or code that already ran. Tests use an inert marker-writing client and a real pseudo-terminal; a live Claude startup/session integration is still unverified. The launch command is deliberately not exposed over MCP.
+
 ## MCP setup
 
 Copy [examples/mcp.json](examples/mcp.json) into your client's MCP configuration after replacing **all absolute paths**. The server stays restricted to the root selected at startup. A tool call cannot switch the root or turn networking on.
@@ -110,7 +138,7 @@ The last eight reports remain in process memory. Restarting the server discards 
 [examples/claude-settings.json](examples/claude-settings.json) contains a configuration fragment for a trusted **user-level** Claude settings file. Replace the interpreter and scanner paths, merge it with existing hooks, and restart Claude. Do not put the policy's executable code in an untrusted target repository.
 
 - `SessionStart` screens the project and adds a short context report. This event does not block actions.
-- Startup findings identify execution surfaces; this SessionStart adapter cannot intercept other startup hooks or editor tasks that already run. A trusted pre-launch enforcement layer is still planned.
+- Startup findings identify execution surfaces; the SessionStart adapter cannot intercept other startup hooks or editor tasks that already run. The separate user-invoked `launch` gate inspects before starting a selected client, within its documented scope.
 - `PreToolUse` screens Bash command text. Recognized high-priority patterns are denied. A very small set of simple read commands returns no decision, leaving normal permissions in control. Other commands trigger a standard project scan, then a deny or a request for user review. This includes installs, builds, tests, inline interpreters, and Git commands that could invoke helpers.
 - Project advisory status and proposed-release advisory status are reported separately. A project with no matching dependencies does not establish coverage for a proposed installation.
 - The example sets `onFailure: "block"` and a 90-second timeout. That failure behavior requires **Claude Code v2.1.295+**. Verify it on the client you actually use: temporarily point the hook at a missing file and confirm that a Bash call is blocked. Older clients may continue when hooks cannot start or time out.

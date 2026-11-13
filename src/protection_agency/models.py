@@ -63,6 +63,7 @@ class Report:
     advisories: str = "not_requested"
     advisory_checked_at: str | None = None
     inventory: str = "not_present"
+    snapshot_id: str | None = None
 
     def gap(self, message: str) -> None:
         message = label(message)
@@ -90,6 +91,7 @@ class Report:
         findings = self.ordered()
         return {
             "report_id": self.id, "decision": self.decision,
+            "snapshot_id": self.snapshot_id,
             "level": self.level, "findings": len(findings),
             "top": [f.brief() for f in findings[:limit]],
             "coverage": {"files": self.files, "bytes": self.bytes_read,

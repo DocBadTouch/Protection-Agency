@@ -1,6 +1,6 @@
 # Validation
 
-Local validation of `0.2.0a1` on 2026-11-13 used Python 3.12.14 on Linux. The unit/integration suite has 69 test methods and passes with:
+Local validation of `0.2.0a2` on 2026-11-13 used Python 3.12.14 on Linux. The unit/integration suite has 114 test methods and passes with:
 
 ```bash
 python3 -I -m unittest discover -s tests -v
@@ -10,7 +10,9 @@ The tests cover the 12 published npm releases, nearby unflagged versions, select
 
 The additional prevention suite first reproduced eight failures in the alpha. It now covers missing direct/transitive lock entries, stale declarations, workspace representation, nearest nested resolution, conflicting/unsupported constraints, malformed Python dependency shapes, proposed malicious install targets and aliases, registry privacy, batched target lookup, target/project coverage separation, structured startup configuration, cached parse failures, JSON comments, documentation context, the new MCP/CLI dependency tool, and offline diagnostics.
 
-The suite uses deterministic OSV transport stubs. A live OSV response has not been verified in this workspace because outbound shell networking requires additional environment permission. Client-specific testing inside a live Claude Code session and full MCP conformance testing are still outstanding. The original alpha passed GitHub CI. The updated workflow targets Python 3.11, 3.12, and 3.13 on Linux and macOS; check the actual PR run for its result. Action pins were resolved from official GitHub action repositories on 2026-11-10.
+The 45 launch tests use an inert trusted client outside a temporary project. Marker files prove that refused/incomplete/expired/changed launches do not start that client and that allowed launches use the selected working directory, literal arguments, and exit status. They cover scanner errors, high-priority refusal, offline/advisory gaps, non-TTY/declined/interrupted review, same-size/same-mtime content changes, new startup files, replaced roots, executable changes, Git helper/hook/config layouts, child environment/PATH sanitization, and help/argument handling. One test performs an actual pseudo-terminal challenge exchange and verifies the marker is absent until the challenge is answered. No live malware or project hook is executed by inspection.
+
+The suite uses deterministic OSV transport stubs. Empty public inventories in launch tests complete without external requests. A live OSV response has not been verified in this workspace because outbound shell networking requires additional environment permission. No native Claude executable was available during this milestone: client-specific startup/session testing and full MCP conformance testing remain outstanding. The original alpha and the first improvement PR passed GitHub CI. The workflow targets Python 3.11, 3.12, and 3.13 on Linux/macOS; check the current PR run for its result. Action pins were resolved from official GitHub action repositories on 2026-11-10.
 
 ## Synthetic performance check
 
