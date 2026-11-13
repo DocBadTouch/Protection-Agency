@@ -126,12 +126,13 @@ def _inspect(root: Path, online: bool):
 
 
 def launch(root: Path, command: list[str], *, online=False, review=False, dry_run=False,
-           input_stream=None, output_stream=None) -> int:
+           input_stream=None, output_stream=None, receipt_formatter=None) -> int:
     input_stream = sys.stdin if input_stream is None else input_stream
     output_stream = sys.stderr if output_stream is None else output_stream
 
     def emit(**data):
-        output_stream.write(json.dumps(data, separators=(",", ":")) + "\n")
+        output_stream.write((receipt_formatter(data) if receipt_formatter else
+                             json.dumps(data, separators=(",", ":"))) + "\n")
         output_stream.flush()
 
     try:
