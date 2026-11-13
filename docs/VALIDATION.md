@@ -1,6 +1,6 @@
 # Validation
 
-Local validation of `0.2.0a2` on 2026-11-13 used Python 3.12.14 on Linux. The unit/integration suite has 114 test methods and passes with:
+Local validation of `0.2.0a3` on 2026-11-13 used Python 3.12.14 on Linux. The unit/integration suite has 145 test methods and passes with:
 
 ```bash
 python3 -I -m unittest discover -s tests -v
@@ -12,7 +12,9 @@ The additional prevention suite first reproduced eight failures in the alpha. It
 
 The 45 launch tests use an inert trusted client outside a temporary project. Marker files prove that refused/incomplete/expired/changed launches do not start that client and that allowed launches use the selected working directory, literal arguments, and exit status. They cover scanner errors, high-priority refusal, offline/advisory gaps, non-TTY/declined/interrupted review, same-size/same-mtime content changes, new startup files, replaced roots, executable changes, Git helper/hook/config layouts, child environment/PATH sanitization, and help/argument handling. One test performs an actual pseudo-terminal challenge exchange and verifies the marker is absent until the challenge is answered. No live malware or project hook is executed by inspection.
 
-The suite uses deterministic OSV transport stubs. Empty public inventories in launch tests complete without external requests. A live OSV response has not been verified in this workspace because outbound shell networking requires additional environment permission. No native Claude executable was available during this milestone: client-specific startup/session testing and full MCP conformance testing remain outstanding. The original alpha and the first improvement PR passed GitHub CI. The workflow targets Python 3.11, 3.12, and 3.13 on Linux/macOS; check the current PR run for its result. Action pins were resolved from official GitHub action repositories on 2026-11-10.
+The 31 hook-integration tests edit owned temporary settings outside a temporary project. They cover semantic preservation, idempotence, dry runs, surgical uninstall after later edits, exact original-byte private backups, duplicate/malformed/over-budget JSON, symlinks/hardlinks/unsafe permissions, active/unsafe locks, concurrent content/directory changes, failed replacement, and post-commit sync failure. Project hook-disable controls block scans/install and invalidate diagnostics. Modified commands, matchers, async options, timeouts, duplicates, and failure policies are rejected without execution. Trusted subprocess probes validate deny/read/error responses; marker files establish that unrelated configured hooks and project Python startup code are not run. Timeout, malformed response, and settings-drift probes fail without exposing captured content. CLI setup/removal and argument requirements are exercised end to end.
+
+The suite uses deterministic OSV transport stubs. Empty public inventories in launch tests complete without external requests; hook protocol probes use offline fast paths even for online profiles. A live OSV response has not been verified in this workspace because outbound shell networking requires additional environment permission. No native Claude executable was available during this milestone: client-specific startup/session testing, settings precedence, and full MCP conformance testing remain outstanding. The first two improvement PRs passed all six GitHub CI jobs. The workflow targets Python 3.11, 3.12, and 3.13 on Linux/macOS; check the current PR run for its result. Action pins were resolved from official GitHub action repositories on 2026-11-10.
 
 ## Synthetic performance check
 

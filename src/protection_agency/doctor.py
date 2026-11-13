@@ -12,7 +12,7 @@ from .scanner import Scanner
 from .startup import inspect
 
 
-def diagnose(root: Path | None = None) -> dict:
+def diagnose(root: Path | None = None, *, settings: Path | None = None, probe_hooks=False) -> dict:
     checks = []
 
     def add(name, passed):
@@ -41,6 +41,18 @@ def diagnose(root: Path | None = None) -> dict:
             raise ValueError("root must be a directory")
         if Path(__file__).resolve().is_relative_to(root):
             warnings.append("Scanner is inside the inspected root; use a trusted installation outside untrusted projects")
-    return {"version": __version__, "status": "failed" if any(c["status"] == "failed" for c in checks) else "self_checks_passed",
+    integration = None
+    if settings is not None:
+        if root is None:
+            raise ValueError("configuration inspection requires an explicit project root")
+        from .integration import inspect_configuration
+        integration = inspect_configuration(settings, root, probe=probe_hooks)
+        add("claude_user_hook_configuration", integration["status"] == "configured")
+        if probe_hooks:
+            add("trusted_hook_protocol_probe", integration["probe"] == "passed")
+    result = {"version": __version__, "status": "failed" if any(c["status"] == "failed" for c in checks) else "self_checks_passed",
             "checks": checks, "warnings": warnings, "live_client_enforcement": "not_verified",
-            "note": "Offline scanner self-tests only. Agent installation, hook order/timeouts, sandboxing, and startup interception require separate client verification."}
+            "note": "Offline checks only. Optional configuration/protocol checks do not verify native client loading, hook order/timeouts, sandboxing, or startup interception."}
+    if integration is not None:
+        result["integration"] = integration
+    return result
