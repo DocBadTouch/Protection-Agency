@@ -102,7 +102,8 @@ def _strip(data, python, launcher):
     return result, removed
 
 
-def configure(operation: str, settings: Path, project: Path, *, online=False, dry_run=False) -> dict:
+def configure(operation: str, settings: Path, project: Path, *, online=False, dry_run=False,
+              expected_snapshot=None) -> dict:
     if operation not in {"install", "uninstall"}:
         raise ValueError("unknown setup operation")
     if not sys.flags.isolated:
@@ -111,6 +112,9 @@ def configure(operation: str, settings: Path, project: Path, *, online=False, dr
     data, snapshot = _load(settings)
     common = {"client": "claude", "scope": "user_settings_Bash_only", "live_client_enforcement": "not_verified",
               "minimum_client_version": MINIMUM_CLIENT, "client_version": "not_checked"}
+    if expected_snapshot is not None and snapshot != expected_snapshot:
+        return {**common, "status": "conflict", "changed": False,
+                "reason": "Settings changed after preview; inspect them and run setup again"}
     if operation == "install" and data.get("disableAllHooks") is True:
         return {**common, "status": "disabled", "changed": False,
                 "reason": "Settings explicitly disable hooks; setup will not change that choice"}
@@ -160,6 +164,38 @@ def _project_controls(project):
     return False
 
 
+def probe_protocol(project, python, launcher, *, online=False):
+    """Exercise only reconstructed trusted hook argv with inert, offline events."""
+    if not sys.flags.isolated:
+        raise ValueError("run trusted hook probes with Python -I")
+    handler = _handler("PreToolUse", python, launcher, online)
+    environment, _, _ = clean_environment(project, os.environ)
+    cases = [
+        ("known_malicious_install_denied", {"hook_event_name": "PreToolUse", "cwd": str(project),
+         "tool_name": "Bash", "tool_input": {"command": "npm install cdeops@13.5.31"}}, "deny"),
+        ("simple_read_keeps_native_permissions", {"hook_event_name": "PreToolUse", "cwd": str(project),
+         "tool_name": "Bash", "tool_input": {"command": "pwd"}}, "no_decision"),
+        ("malformed_event_rejected", {}, "exit_two"),
+    ]
+    checks = []
+    for name, event, expected in cases:
+        process = subprocess.run([handler["command"], *handler["args"]], input=json.dumps(event),
+                                 capture_output=True, text=True, cwd=project, env=environment, timeout=5, shell=False)
+        if len(process.stdout) > 65536 or len(process.stderr) > 65536:
+            raise ValueError("unexpected probe output")
+        if expected == "exit_two":
+            valid = process.returncode == 2
+        else:
+            output = json.loads(process.stdout)
+            valid = process.returncode == 0 and isinstance(output, dict) and (
+                output == {} if expected == "no_decision" else
+                output.get("hookSpecificOutput", {}).get("permissionDecision") == expected)
+        checks.append({"check": name, "status": "passed" if valid else "failed"})
+        if not valid:
+            break
+    return checks
+
+
 def inspect_configuration(settings: Path, project: Path, *, probe=False) -> dict:
     result = {"status": "unsafe_or_invalid", "probe": "not_run", "client": "claude",
               "scope": "user_settings_Bash_only", "minimum_client_version": MINIMUM_CLIENT,
@@ -201,30 +237,9 @@ def inspect_configuration(settings: Path, project: Path, *, probe=False) -> dict
         if probe:
             if not sys.flags.isolated:
                 return {**result, "probe": "requires_isolated_python"}
-            # Use reconstructed trusted argv, never arbitrary commands from settings.
-            handler = _handler("PreToolUse", python, launcher, modes[0])
-            argv = [handler["command"], *handler["args"]]
-            environment, _, _ = clean_environment(project, os.environ)
-            cases = [
-                ({"hook_event_name": "PreToolUse", "cwd": str(project), "tool_name": "Bash",
-                  "tool_input": {"command": "npm install cdeops@13.5.31"}}, "deny"),
-                ({"hook_event_name": "PreToolUse", "cwd": str(project), "tool_name": "Bash",
-                  "tool_input": {"command": "pwd"}}, "no_decision"),
-                ({}, "exit_two"),
-            ]
-            for event, expected in cases:
-                process = subprocess.run(argv, input=json.dumps(event), capture_output=True,
-                                         text=True, cwd=project, env=environment, timeout=5, shell=False)
-                if len(process.stdout) > 65536 or len(process.stderr) > 65536:
-                    raise ValueError("unexpected probe output")
-                if expected == "exit_two":
-                    valid = process.returncode == 2
-                else:
-                    output = json.loads(process.stdout)
-                    valid = process.returncode == 0 and (output == {} if expected == "no_decision" else
-                            output.get("hookSpecificOutput", {}).get("permissionDecision") == expected)
-                if not valid:
-                    return {**result, "probe": "failed"}
+            checks = probe_protocol(project, python, launcher, online=modes[0])
+            if len(checks) != 3 or any(c["status"] != "passed" for c in checks):
+                return {**result, "probe": "failed"}
             if _load(settings)[1] != snapshot:
                 return {**result, "status": "changed_during_check", "probe": "not_verified"}
             result["probe"] = "passed"

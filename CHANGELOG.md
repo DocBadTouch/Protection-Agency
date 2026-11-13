@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0a4 — development prerelease
+
+- Add the recommended first-time path: inert `demo`, guided Claude `setup`, readable project `check`, and guarded `open`. Keep existing JSON CLI/MCP/hook interfaces; add `check --json` and optional `--human` diagnostic/setup output.
+- Require terminal consent before guided setup edits, explicit online choice, snapshot-bound preview/apply checks, private backups, and local configuration/protocol validation. Honor `CLAUDE_CONFIG_DIR` in the wizard and print an optional shell-quoted alias without editing startup files.
+- Share the trusted deny/read/error response probe between doctor and demo. Run example command text only as hook input, with no package installation, network request, or native client invocation. Keep native enforcement explicitly unverified.
+- Discover Claude only on a sanitized external PATH or through an explicit absolute executable. Delegate startup policy/rechecks/challenges to the existing launch gate; preserve all review metadata in readable output.
+- Rewrite the README around the newcomer workflow, add Getting started/troubleshooting, and retain expanded technical material in Detailed usage. Add a friendly unsupported-Python message. No third-party runtime dependency or model call added.
+- Add 35 onboarding tests, including actual terminal consent/challenge exchanges, settings drift/cancellation, shell quoting, command shadowing, literal arguments, marker-backed refused/dry-run openings, readable results, and legacy interface compatibility. All 180 test methods pass locally; native Claude sessions and uncoached newcomer usability tests remain outstanding.
+
 ## 0.2.0a3 — development prerelease
 
 - Add explicit `install-hooks` / `uninstall-hooks` for Claude user settings, offline by default with optional online hooks. Preserve unrelated configuration and later user edits; adopt exact legacy handlers and use a reserved ownership marker.

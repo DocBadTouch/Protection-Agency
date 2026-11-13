@@ -1,6 +1,6 @@
 # CLI reference
 
-This reference describes source version `0.2.0a3`, Python 3.11+, on Linux/macOS. Run the trusted checkout outside the inspected project with an external Python interpreter in isolated mode:
+This reference describes source version `0.2.0a4`, Python 3.11+, on Linux/macOS. New users should follow [Getting started](GETTING-STARTED.md) for `demo`, guided `setup`, readable `check`, and guarded `open`. The `agency` shortcut in that guide is a user-defined shell alias, not a separately installed binary. Run the trusted checkout outside the inspected project with an external Python interpreter in isolated mode:
 
 ```bash
 python3 -I /trusted/protection-agency/guard.py --version
@@ -14,14 +14,18 @@ Replace placeholder paths with actual absolute paths. The source checkout includ
 
 | Command | Arguments and options | Effect |
 | --- | --- | --- |
+| `demo` | Optional `--json` | Exercise trusted hook deny/read/error responses in a disposable empty project. No example commands run and no network requests occur. |
+| `setup` | Optional `[root]` (default current directory), `--settings file`, `--online` or `--offline`, `--dry-run` | Guided Claude hook setup. Show the target and privacy choice, preview, require terminal confirmation, then validate local hook responses. |
+| `check` | Optional `[root]` (default current directory), `--level quick\|standard\|deep`, `--online`, `--full`, `--json` | Same scanner and exit decisions as `scan`, with readable findings/actions by default. `--json` provides the existing summary/full report shape. |
+| `open` | Optional `[root]` (default current directory), `--client /absolute/executable`, `--online`, `--review`, `--dry-run`, optional `-- [client args…]` | Find Claude on the sanitized external PATH, or select an explicit trusted client. Delegate to the existing launch gate with readable receipts; client arguments remain literal. |
 | `scan` | `root`, `--level quick\|standard\|deep` (default `standard`), `--online`, `--full` | Inspect selected project files as data. Return a compact report, or full findings with `--full`. |
 | `check-command` | One quoted `command` string | Classify text as `deny`, `ask`, or `no_objection`; never execute it. |
 | `check-dependency` | `npm\|PyPI name [version]`, `--registry URL`, `--online` | Check a proposed release without installing, resolving, or downloading artifacts. Exact supported versions and explicit public provenance are needed for OSV. |
 | `serve` | Required `--root root`, optional `--online` | Serve four read-only MCP tools over stdio, fixed to that root and online mode. |
 | `hook` | Optional `--online`; one event on stdin | Handle Claude `SessionStart` or `PreToolUse` Bash JSON. Never execute the proposed command. |
-| `doctor` | Optional `--root root`, `--settings file`, `--probe-hooks` | Run offline self-checks and optional configuration/protocol diagnostics. Configuration checks require both root and settings. |
-| `install-hooks` | Required `--project root`; optional `--settings file`, `--online`, `--dry-run` | Add/replace only this tool's Claude user hooks after checking trusted paths and explicit hook-disable controls. |
-| `uninstall-hooks` | Required `--project root`; optional `--settings file`, `--dry-run` | Remove owned/exact legacy handlers while preserving current unrelated settings and later user edits. |
+| `doctor` | Optional `--root root`, `--settings file`, `--probe-hooks`, `--human` | Run offline self-checks and optional configuration/protocol diagnostics. Configuration checks require both root and settings. JSON by default; `--human` shows a readable summary. |
+| `install-hooks` | Required `--project root`; optional `--settings file`, `--online`, `--dry-run`, `--human` | Add/replace only this tool's Claude user hooks after checking trusted paths and explicit hook-disable controls. |
+| `uninstall-hooks` | Required `--project root`; optional `--settings file`, `--dry-run`, `--human` | Remove owned/exact legacy handlers while preserving current unrelated settings and later user edits. |
 | `launch` | `root`, `--online`, `--review`, `--dry-run`, then required `-- /absolute/client [args…]` | Inspect before starting an explicitly selected trusted external client. This command can execute that client; it does not sandbox it. |
 
 Offline is the default. `--online` opts into OSV requests for eligible public package names/ecosystems/versions; source, credentials, and project paths are not sent. Online mode does not download package artifacts. `launch` requires completed current advisory coverage to proceed, so an offline launch stops before execution. No command installs hook settings as a side effect of scanning, serving MCP, or running doctor.
@@ -37,20 +41,26 @@ These examples inspect text/metadata only. A proposed-release result excludes tr
 
 | Operation | Exit/status meaning |
 | --- | --- |
-| `scan`, `check-dependency` | `0`: `no_findings`; `1`: `block`; `2`: `review`; `3`: check error. Read coverage and gaps alongside the decision. Offline scans require review. |
+| `demo` | `0`: all three trusted responses passed; `1`: demonstration failed; `3`: ordinary CLI error. Native enforcement remains unverified. |
+| `setup` | `0`: preview completed or local configuration/response checks passed; `2`: cancellation, nonterminal input, disabled/conflicting settings, applied durability warning, or unsuccessful post-install validation; `3`: ordinary setup/self-check error; `130`: interruption. A failed post-install probe does not roll back an applied edit. |
+| `scan`, `check`, `check-dependency` | `0`: `no_findings`; `1`: `block`; `2`: `review`; `3`: check error. Read coverage and gaps alongside the decision. Offline scans require review. |
 | `check-command` | `0`: `no_objection`; `1`: `deny`; `2`: `ask`. These are advisory text classifications. |
 | `doctor` | `0`: all requested checks passed; `1`: a requested check failed; `3`: ordinary check/root error. Missing required argument combinations exit `2`. Native enforcement remains unverified. |
 | Hook setup/removal | `0`: completed/no-op/preview; `2`: disabled controls, detected conflict, or an applied durability warning; `3`: ordinary setup error. Inspect `status` and `changed`. |
 | `hook` | `0`: valid protocol output, including deny/ask responses; `2`: hook check failure. A denial is encoded in JSON rather than exit `1`. Client behavior on hook startup/timeout errors needs native verification. |
 | `serve` | Newline-delimited JSON-RPC on stdout; clean input EOF exits `0`; an oversized transport frame exits `1`. Protocol errors use JSON-RPC error responses. Do not send console prose into its transport. |
-| `launch` before child start | `1`: high-priority finding; `2`: review/incomplete/changed/expired state; `3`: check/start error; `130`: interruption. A dry run starts nothing. |
-| `launch` after child start | Return the child exit status; preflight output's `execution` field distinguishes it from a guard refusal. |
+| `launch`, `open` before child start | `1`: high-priority finding; `2`: review/incomplete/changed/expired state; `3`: check/start/client-discovery error; `130`: interruption. A dry run starts nothing. |
+| `launch`, `open` after child start | Return the child exit status. `launch` JSON's `execution` field, or `open`'s readable starting message, distinguishes phases. |
+
+Guided `setup` honors an explicit `--settings` path, then `$CLAUDE_CONFIG_DIR/settings.json`, then the home `.claude/settings.json` default. It requires Python `-I` and a terminal for actual changes, asks about online hooks unless a mode flag was given, and requires confirmation before applying the preview. It binds that confirmation to the previously read settings snapshot; detected drift stops the edit. `--dry-run` is noninteractive, defaults offline without an explicit mode, and creates no configuration or self-test files. The wizard does not add persistent aliases, edit shell startup files, start Claude, or approve a project. It can print a shell-quoted shortcut for the current terminal.
+
+`open` removes unsafe PATH entries before looking for `claude`; the launch gate additionally resolves and rejects executable paths inside the project, including external symlinks into it. It retains the existing complete-coverage/high-priority/terminal-review rules. `open --online` and online choices during setup are separate: the latter configure hooks only. All existing JSON CLI/MCP/hook contracts remain available.
 
 ## Hook setup and removal
 
 Both setup commands default to `~/.claude/settings.json`. A custom `--settings` path must be absolute and outside the selected project, matching the user profile the native client loads. `CLAUDE_CONFIG_DIR`, CLI overrides, and the complete native hierarchy are not discovered automatically. The explicit `--project` selects the untrusted root for trust-boundary and root hook-disable checks; setup does not approve or fully scan it.
 
-An edit normalizes JSON comments/formatting, preserves unrelated settings semantically, and writes a private original-byte backup before replacement. It refuses unsafe ownership/write permissions, symlinks, hard-linked settings, invalid/oversized JSON, and detected conflicting edits. The reserved `statusMessage: "Protection Agency security check"` identifies owned handlers and is not authentication. Removal also recognizes exact legacy handlers for the current trusted paths. It does not blindly restore an earlier backup. Backups and the empty coordination lock remain local; backups may contain credentials. Review [the full setup behavior](../README.md#claude-code-hooks-and-the-portable-skill) and [editing limits](THREAT-MODEL.md#explicit-user-hook-setup-boundary).
+An edit normalizes JSON comments/formatting, preserves unrelated settings semantically, and writes a private original-byte backup before replacement. It refuses unsafe ownership/write permissions, symlinks, hard-linked settings, invalid/oversized JSON, and detected conflicting edits. The reserved `statusMessage: "Protection Agency security check"` identifies owned handlers and is not authentication. Removal also recognizes exact legacy handlers for the current trusted paths. It does not blindly restore an earlier backup. Backups and the empty coordination lock remain local; backups may contain credentials. Review [the full setup behavior](USAGE.md#claude-code-hooks-and-the-portable-skill) and [editing limits](THREAT-MODEL.md#explicit-user-hook-setup-boundary).
 
 | Setup `status` | Meaning and next action |
 | --- | --- |

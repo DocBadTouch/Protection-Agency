@@ -12,6 +12,28 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="protection-agency", description="Your agent needs an agency. Screen projects and gate an explicitly selected client launch; never a safety guarantee.")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="subcommand", required=True)
+    friendly = commands.add_parser("check", help="Check a project and show readable findings and next steps")
+    friendly.add_argument("root", type=Path, nargs="?", default=Path("."))
+    friendly.add_argument("--level", choices=["quick", "standard", "deep"], default="standard")
+    friendly.add_argument("--online", action="store_true")
+    friendly.add_argument("--full", action="store_true")
+    friendly.add_argument("--json", action="store_true", help="Return machine-readable output")
+    demonstration = commands.add_parser("demo", help="Demonstrate trusted hook responses without executing example commands")
+    demonstration.add_argument("--json", action="store_true")
+    guided = commands.add_parser("setup", help="Guided Claude user-hook setup, preview, and local response test")
+    guided.add_argument("root", type=Path, nargs="?", default=Path("."))
+    guided.add_argument("--settings", type=Path)
+    mode = guided.add_mutually_exclusive_group()
+    mode.add_argument("--online", dest="online", action="store_true")
+    mode.add_argument("--offline", dest="online", action="store_false")
+    guided.set_defaults(online=None)
+    guided.add_argument("--dry-run", action="store_true")
+    opening = commands.add_parser("open", help="Check first, then open a trusted Claude executable; no sandbox provided")
+    opening.add_argument("root", type=Path, nargs="?", default=Path("."))
+    opening.add_argument("--client", type=Path, help="Absolute trusted client; default finds claude outside the project on the sanitized PATH")
+    opening.add_argument("--online", action="store_true")
+    opening.add_argument("--review", action="store_true")
+    opening.add_argument("--dry-run", action="store_true")
     scan = commands.add_parser("scan", help="Screen a project without executing its code")
     scan.add_argument("root", type=Path)
     scan.add_argument("--level", choices=["quick", "standard", "deep"], default="standard")
@@ -34,11 +56,13 @@ def main(argv=None) -> int:
     doctor.add_argument("--root", type=Path)
     doctor.add_argument("--settings", type=Path, help="Inspect Claude user settings outside the project")
     doctor.add_argument("--probe-hooks", action="store_true", help="Exercise only the reconstructed trusted guard hook; not the native client")
+    doctor.add_argument("--human", action="store_true", help="Show a readable diagnostic summary")
     for action in ("install-hooks", "uninstall-hooks"):
         setup = commands.add_parser(action, help="Manage only Protection Agency's Claude user hooks with private backups")
         setup.add_argument("--project", type=Path, required=True)
         setup.add_argument("--settings", type=Path, default=Path.home() / ".claude/settings.json")
         setup.add_argument("--dry-run", action="store_true")
+        setup.add_argument("--human", action="store_true")
         if action == "install-hooks":
             setup.add_argument("--online", action="store_true")
     launch_parser = commands.add_parser("launch", help="Inspect before launching a trusted external client; does not provide a sandbox")
@@ -48,6 +72,9 @@ def main(argv=None) -> int:
     launch_parser.add_argument("--dry-run", action="store_true", help="Print preflight only; never start a client")
     argv = list(sys.argv[1:] if argv is None else argv)
     launch_command = []
+    if argv[:1] == ["open"] and "--" in argv:
+        index = argv.index("--")
+        launch_command, argv = argv[index + 1:], argv[:index]
     before_separator = argv[:argv.index("--")] if "--" in argv else argv
     if argv[:1] == ["launch"] and not {"--help", "-h"}.intersection(before_separator):
         if "--" not in argv:
@@ -61,6 +88,24 @@ def main(argv=None) -> int:
                                        or args.probe_hooks and args.settings is None):
         parser.error("doctor configuration checks require --root and --settings; --probe-hooks also requires both")
     try:
+        if args.subcommand == "setup":
+            from .onboarding import setup as guided_setup
+            return guided_setup(args.root, settings=args.settings, online=args.online, dry_run=args.dry_run)
+        if args.subcommand == "demo":
+            from .onboarding import demo, demo_text
+            result = demo()
+            print(json.dumps(result, indent=2) if args.json else demo_text(result))
+            return 0 if result["status"] == "passed" else 1
+        if args.subcommand == "open":
+            from .onboarding import open_client
+            return open_client(args.root, client=args.client, online=args.online, review=args.review,
+                               dry_run=args.dry_run, client_args=launch_command)
+        if args.subcommand == "check":
+            from .presentation import scan_result
+            report = Scanner(args.root, online=args.online).scan(args.level)
+            print(json.dumps(report.full() if args.full else report.summary(), indent=2) if args.json else
+                  scan_result(report, full=args.full))
+            return {"no_findings": 0, "block": 1, "review": 2}[report.decision]
         if args.subcommand == "scan":
             report = Scanner(args.root, online=args.online).scan(args.level)
             print(json.dumps(report.full() if args.full else report.summary(), indent=2))
@@ -80,13 +125,21 @@ def main(argv=None) -> int:
         if args.subcommand == "doctor":
             from .doctor import diagnose
             result = diagnose(args.root, settings=args.settings, probe_hooks=args.probe_hooks)
-            print(json.dumps(result, indent=2))
+            if args.human:
+                from .presentation import doctor_result
+                print(doctor_result(result))
+            else:
+                print(json.dumps(result, indent=2))
             return 1 if result["status"] == "failed" else 0
         if args.subcommand in {"install-hooks", "uninstall-hooks"}:
             from .integration import configure
             result = configure("install" if args.subcommand == "install-hooks" else "uninstall",
                                args.settings, args.project, dry_run=args.dry_run, online=getattr(args, "online", False))
-            print(json.dumps(result, indent=2))
+            if args.human:
+                from .presentation import setup_result
+                print(setup_result(result))
+            else:
+                print(json.dumps(result, indent=2))
             return 2 if result["status"] in {"disabled", "disabled_by_project", "conflict", "applied_with_warning"} else 0
         if args.subcommand == "launch":
             from .launcher import launch
@@ -95,6 +148,12 @@ def main(argv=None) -> int:
         verdict = check_command(args.command)
         print(json.dumps(verdict))
         return {"no_objection": 0, "deny": 1, "ask": 2}[verdict["decision"]]
-    except (OSError, ValueError):
+    except KeyboardInterrupt:
+        print("Interrupted. If setup had begun applying changes, inspect the settings before retrying.", file=sys.stderr)
+        return 130
+    except (OSError, ValueError) as error:
         print("Protection Agency could not complete the check; no safety result asserted.", file=sys.stderr)
+        if args.subcommand in {"setup", "open", "check", "demo"}:
+            from .onboarding import error_hint
+            print(error_hint(error), file=sys.stderr)
         return 3
