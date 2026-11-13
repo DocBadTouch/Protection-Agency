@@ -4,6 +4,25 @@ from pathlib import Path
 import stat
 
 
+def open_project_directory(root: Path, relative: str) -> int:
+    """Return a caller-owned directory descriptor, refusing symlink components."""
+    parts = Path(relative).parts
+    if Path(relative).is_absolute() or any(part in {"..", "/", ""} for part in parts):
+        raise OSError("invalid project-relative directory")
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise OSError("secure reads require POSIX O_NOFOLLOW")
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in parts:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def read_project_file(root: Path, relative: str, limit: int) -> bytes:
     parts = Path(relative).parts
     if not parts or any(part in {"..", "/", ""} for part in parts) or Path(relative).is_absolute():

@@ -9,7 +9,7 @@ from .scanner import Scanner
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog="protection-agency", description="Your agent needs an agency. Read-only security screening; never a safety guarantee.")
+    parser = argparse.ArgumentParser(prog="protection-agency", description="Your agent needs an agency. Screen projects and gate an explicitly selected client launch; never a safety guarantee.")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="subcommand", required=True)
     scan = commands.add_parser("scan", help="Screen a project without executing its code")
@@ -32,6 +32,21 @@ def main(argv=None) -> int:
     dependency.add_argument("--online", action="store_true")
     doctor = commands.add_parser("doctor", help="Run offline scanner diagnostics; does not certify live agent enforcement")
     doctor.add_argument("--root", type=Path)
+    launch_parser = commands.add_parser("launch", help="Inspect before launching a trusted external client; does not provide a sandbox")
+    launch_parser.add_argument("root", type=Path)
+    launch_parser.add_argument("--online", action="store_true")
+    launch_parser.add_argument("--review", action="store_true", help="Permit explicit terminal review of lower-priority findings when coverage is complete")
+    launch_parser.add_argument("--dry-run", action="store_true", help="Print preflight only; never start a client")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    launch_command = []
+    before_separator = argv[:argv.index("--")] if "--" in argv else argv
+    if argv[:1] == ["launch"] and not {"--help", "-h"}.intersection(before_separator):
+        if "--" not in argv:
+            parser.error("launch requires -- followed by an absolute client executable and its arguments")
+        index = argv.index("--")
+        launch_command, argv = argv[index + 1:], argv[:index]
+        if not launch_command:
+            parser.error("launch requires a client executable after --")
     args = parser.parse_args(argv)
     try:
         if args.subcommand == "scan":
@@ -55,6 +70,10 @@ def main(argv=None) -> int:
             result = diagnose(args.root)
             print(json.dumps(result, indent=2))
             return 1 if result["status"] == "failed" else 0
+        if args.subcommand == "launch":
+            from .launcher import launch
+            return launch(args.root, launch_command, online=args.online, review=args.review,
+                          dry_run=args.dry_run, output_stream=sys.stdout if args.dry_run else sys.stderr)
         verdict = check_command(args.command)
         print(json.dumps(verdict))
         return {"no_objection": 0, "deny": 1, "ask": 2}[verdict["decision"]]

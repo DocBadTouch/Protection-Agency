@@ -32,3 +32,21 @@ Only summary and finding retrieval enter the model context. Source text and down
 The MCP transport implements initialize, ping, tools/list, tools/call, and notifications over newline-delimited JSON-RPC. It exposes no HTTP listener, filesystem write tool, shell tool, external scanner adapter, remediation tool, or arbitrary endpoint option. It is a deliberately small implementation, tested with a stdio client; full MCP conformance and live integration with every agent client are not claimed.
 
 The Bash hook uses a small policy rather than attempting a permissive shell allowlist. Suspicious patterns deny; simple recognized reads defer to native permissions; other commands require a scan and user review. Source changes between a scan and execution remain possible. Only an OS sandbox, execution broker, or immutable snapshot can enforce a stronger boundary.
+
+## Pre-launch gate
+
+```mermaid
+flowchart LR
+  U[Explicit user CLI invocation] --> V[Validate trusted external scanner and client]
+  V --> S[Scan project and selected Git startup metadata]
+  S --> G[Gate on coverage and findings]
+  G --> T[Optional terminal review of lower-priority findings]
+  T --> R[Local content and identity recheck]
+  R --> C[Start selected client without shell expansion]
+```
+
+`launch` is a separate CLI execution operation, not a scanner side effect or an MCP tool. It requires Python isolated mode and rejects a scanner/client executable inside the inspected root. It copies and sanitizes the child environment without modifying the parent, and passes a frozen argument tuple to subprocess execution.
+
+The standard scan computes a stable fingerprint of selected file names and byte hashes. Launch adds selected Git metadata and the scanner version. Review is local, ephemeral, and limited to complete checks with lower-priority findings. Its random terminal challenge does not establish operator identity or act as a reusable capability. High-priority/incomplete cases stop without approval.
+
+The second inspection makes no new advisory requests and compares selected content, static findings, root identity, and client metadata. A five-minute limit bounds the initial preflight window. Changed or expired state stops execution. Client/global configuration and the client installation are trusted inputs; runtime isolation, atomic filesystem state, and complete client configuration discovery are outside this implementation.

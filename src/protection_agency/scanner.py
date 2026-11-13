@@ -1,6 +1,7 @@
 from collections import OrderedDict
 from datetime import datetime, timezone
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -95,6 +96,7 @@ class Scanner:
         if report.inventory != "incomplete" and any(inventory(p) for p in paths):
             report.inventory = "complete"
         contents = {}
+        hashes = {}
         deps = []
         for relative in paths:
             if time.monotonic() - start > self.max_seconds:
@@ -122,6 +124,7 @@ class Scanner:
                 continue
             contents[relative] = text
             digest = hashlib.sha256(raw).hexdigest()
+            hashes[relative] = digest
             key = (relative, digest)
             if key in self.cache:
                 hits, gaps = self.cache[key]
@@ -161,4 +164,7 @@ class Scanner:
             self.osv_client.check(unique, report)
             if report.advisories == "complete":
                 report.advisory_checked_at = datetime.now(timezone.utc).isoformat()
+        report.snapshot_id = hashlib.sha256(json.dumps(
+            {"scope": level, "files": sorted(hashes.items())}, separators=(",", ":")
+        ).encode()).hexdigest()
         return report
