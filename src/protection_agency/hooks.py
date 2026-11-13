@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 from .policy import check_command
+from .preflight import check_dependencies, command_targets
 from .scanner import Scanner
 
 MAX_INPUT = 1024 * 1024
@@ -34,12 +35,20 @@ def handle(event: dict, *, online: bool = False) -> dict:
             return deny("Protection Agency: " + verdict["reason"])
         if verdict["decision"] == "no_objection":
             return {}  # No allow decision: other permission checks retain control.
+        targets = command_targets(tool_input["command"])
+        target_results = check_dependencies(targets, online=online)
+        for result in target_results:
+            if result["decision"] == "block":
+                return deny("Protection Agency: known malicious proposed dependency; inspect its release advisory before execution.")
     report = Scanner(Path(cwd), online=online).scan("standard")
     if kind == "SessionStart":
         # SessionStart supplies context; it cannot block execution.
         return {"hookSpecificOutput": {"hookEventName": "SessionStart",
             "additionalContext": "Protection Agency screening: " + json.dumps(report.summary(limit=3), separators=(",", ":"))}}
-    reason = f"Protection Agency: {len(report.ordered())} findings; advisories {report.advisories}. "
+    reason = f"Protection Agency: {len(report.ordered())} project findings; project advisories {report.advisories}. "
+    if targets:
+        states = ",".join(sorted({r["coverage"]["advisories"] for r in target_results}))
+        reason += f"Proposed-release advisories {states}; transitive packages and artifacts not checked. "
     if report.decision == "block":
         top = report.ordered()[0]
         return deny(reason + top.title + ". Inspect with the standalone scanner before executing project code.")

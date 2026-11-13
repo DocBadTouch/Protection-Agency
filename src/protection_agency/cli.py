@@ -24,6 +24,14 @@ def main(argv=None) -> int:
     hook.add_argument("--online", action="store_true")
     check = commands.add_parser("check-command", help="Classify a command as text; never execute it")
     check.add_argument("command")
+    dependency = commands.add_parser("check-dependency", help="Check a proposed release without installing or resolving it")
+    dependency.add_argument("ecosystem", choices=["npm", "PyPI"])
+    dependency.add_argument("name")
+    dependency.add_argument("version", nargs="?", default="")
+    dependency.add_argument("--registry", help="Explicit registry provenance; unknown/private registries are not queried")
+    dependency.add_argument("--online", action="store_true")
+    doctor = commands.add_parser("doctor", help="Run offline scanner diagnostics; does not certify live agent enforcement")
+    doctor.add_argument("--root", type=Path)
     args = parser.parse_args(argv)
     try:
         if args.subcommand == "scan":
@@ -36,6 +44,17 @@ def main(argv=None) -> int:
         if args.subcommand == "hook":
             from .hooks import run
             return run(online=args.online)
+        if args.subcommand == "check-dependency":
+            from .preflight import check_dependency
+            result = check_dependency(args.ecosystem, args.name, args.version,
+                                      registry=args.registry, online=args.online)
+            print(json.dumps(result, indent=2))
+            return {"no_findings": 0, "block": 1, "review": 2}[result["decision"]]
+        if args.subcommand == "doctor":
+            from .doctor import diagnose
+            result = diagnose(args.root)
+            print(json.dumps(result, indent=2))
+            return 1 if result["status"] == "failed" else 0
         verdict = check_command(args.command)
         print(json.dumps(verdict))
         return {"no_objection": 0, "deny": 1, "ask": 2}[verdict["decision"]]
