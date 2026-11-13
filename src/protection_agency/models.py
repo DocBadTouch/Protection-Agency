@@ -21,6 +21,7 @@ class Finding:
     reference: str = ""
     package: str = ""
     version: str = ""
+    context: str = "source"
 
     @property
     def id(self) -> str:
@@ -29,7 +30,8 @@ class Finding:
 
     def brief(self) -> dict:
         return {"id": self.id, "rule": self.rule, "severity": self.severity,
-                "path": label(self.path), "line": self.line, "title": self.title}
+                "path": label(self.path), "line": self.line, "title": self.title,
+                "context": self.context}
 
     def detail(self) -> dict:
         data = {k: label(v, 700) if isinstance(v, str) else v
@@ -60,11 +62,16 @@ class Report:
     cached_files: int = 0
     advisories: str = "not_requested"
     advisory_checked_at: str | None = None
+    inventory: str = "not_present"
 
     def gap(self, message: str) -> None:
         message = label(message)
         if message not in self.gaps and len(self.gaps) < 40:
             self.gaps.append(message)
+
+    def inventory_gap(self, message: str) -> None:
+        self.inventory = "incomplete"
+        self.gap(message)
 
     @property
     def decision(self) -> str:
@@ -87,6 +94,8 @@ class Report:
             "top": [f.brief() for f in findings[:limit]],
             "coverage": {"files": self.files, "bytes": self.bytes_read,
                          "packages": self.dependencies, "advisories": self.advisories,
+                         "inventory": self.inventory,
+                         "complete": not self.gaps and self.advisories == "complete",
                          "source_scope": {"quick": "manifests_and_configuration", "standard": "project_text", "deep": "project_and_installed_text"}[self.level],
                          "advisory_checked_at": self.advisory_checked_at,
                          "gaps": self.gaps, "cached_files": self.cached_files},

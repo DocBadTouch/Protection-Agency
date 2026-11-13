@@ -5,6 +5,7 @@ import sys
 
 from . import __version__
 from .policy import check_command
+from .preflight import check_dependency
 from .scanner import Scanner
 
 PROTOCOLS = {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
@@ -19,6 +20,14 @@ TOOLS = [
      "annotations": ANNOTATIONS},
     {"name": "check_command", "description": "Classify a proposed command without running it. deny/ask/no_objection; no_objection is never a safety guarantee.",
      "inputSchema": {"type": "object", "properties": {"command": {"type": "string", "maxLength": 32768}}, "required": ["command"], "additionalProperties": False},
+     "annotations": ANNOTATIONS},
+    {"name": "check_dependency", "description": "Check a proposed exact npm/PyPI release before installation. Never installs or resolves. Public registry provenance is required for opt-in OSV checks. Transitive packages/artifacts are outside this check.",
+     "inputSchema": {"type": "object", "properties": {
+         "ecosystem": {"type": "string", "enum": ["npm", "PyPI"]},
+         "name": {"type": "string", "maxLength": 214},
+         "version": {"type": "string", "maxLength": 200},
+         "registry": {"type": "string", "maxLength": 2048}},
+         "required": ["ecosystem", "name"], "additionalProperties": False},
      "annotations": ANNOTATIONS},
 ]
 
@@ -67,6 +76,10 @@ class Server:
             if set(args) != {"command"} or not isinstance(args["command"], str):
                 raise ValueError("invalid command arguments")
             return check_command(args["command"])
+        if name == "check_dependency":
+            if set(args) - {"ecosystem", "name", "version", "registry"} or not {"ecosystem", "name"} <= args.keys():
+                raise ValueError("invalid dependency arguments")
+            return check_dependency(**args, online=self.scanner.online, osv_client=self.scanner.osv_client)
         raise ValueError("unknown tool")
 
     def dispatch(self, message: object) -> dict | None:

@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0a1",
+  "fixture": "2500 synthetic npm entries + 500 benign JS files",
+  "scan_ms": [
+    209.03,
+    65.94
+  ],
+  "summary_chars": 314,
+  "summary": {
+    "report_id": "1ce2fc1f29b547c8",
+    "decision": "review",
+    "level": "standard",
+    "findings": 0,
+    "top": [],
+    "coverage": {
+      "files": 501,
+      "bytes": 1082824,
+      "packages": 2500,
+      "advisories": "not_requested",
+      "inventory": "complete",
+      "complete": false,
+      "source_scope": "project_text",
+      "advisory_checked_at": null,
+      "gaps": [],
+      "cached_files": 501
+    },
+    "more": 0
+  }
+}

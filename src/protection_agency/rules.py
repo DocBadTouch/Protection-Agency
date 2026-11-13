@@ -1,5 +1,7 @@
 """Conservative signatures. Never evaluate, decode-and-run, or import target code."""
 import re
+from dataclasses import replace
+from pathlib import PurePosixPath as Path
 
 from .intelligence import POLINRIDER_WALLET, SOURCE
 from .models import Finding
@@ -53,8 +55,11 @@ def scan_text(path: str, text: str) -> list[Finding]:
         findings.append(Finding("PA108", "medium", path, 1,
             "Blockchain RPC and dynamic execution in the same file",
             "Inspect possible blockchain-mediated payload resolution; co-occurrence does not prove data flow."))
-    if path.endswith(".vscode/tasks.json") and re.search(r'"runOn"\s*:\s*"folderOpen"', text):
-        findings.append(Finding("PA109", "medium", path, 1,
-            "Editor task configured to run when a folder opens",
-            "Review the task before trusting this workspace in an editor."))
+    p = Path(path)
+    documentation = (p.suffix.lower() in {".md", ".rst"} or
+                     p.suffix.lower() == ".txt" and p.stem.upper() in {"README", "CHANGELOG", "CONTRIBUTING"})
+    if (documentation and p.name.upper() not in {"AGENTS.MD", "CLAUDE.MD", "SKILL.MD", "GEMINI.MD"}
+            and not set(p.parts) & {".claude", ".cursor", ".agents", ".gemini", ".github", ".vscode"}):
+        findings = [replace(f, severity="low", context="documentation",
+                            evidence="documentation_indicator") for f in findings]
     return findings

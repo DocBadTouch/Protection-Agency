@@ -3,6 +3,7 @@ import re
 import shlex
 
 from .rules import scan_text
+from .preflight import check_dependency, command_targets
 
 
 def check_command(command: str) -> dict:
@@ -12,6 +13,12 @@ def check_command(command: str) -> dict:
     if hits:
         return {"decision": "deny", "reason": hits[0].title,
                 "rules": [f.rule for f in hits]}
+    targets = command_targets(command)
+    for target in targets:
+        result = check_dependency(**target)
+        if result["decision"] == "block":
+            return {"decision": "deny", "reason": "Known malicious dependency release: " +
+                    target["name"] + "@" + target["version"], "rules": ["PA200"]}
     if re.search(r"(?:powershell|pwsh)\b[^\n]{0,300}-(?:enc|encodedcommand)\b", command, re.I):
         return {"decision": "deny", "reason": "Encoded PowerShell execution requires separate inspection"}
     # Never classify shell composition, expansion, redirection, escaping, globbing,

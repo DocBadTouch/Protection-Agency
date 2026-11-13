@@ -2,6 +2,8 @@
 
 The current repository is a working alpha. Everything below is planned work, not a current feature or a promised delivery date.
 
+The `0.2.0a1` development milestone now implements basic inventory consistency, exact proposed-release checks, selected startup execution-surface review, documentation context, and offline scanner diagnostics. A diagnostic pass does not verify live client enforcement. The next enforcement milestone remains a trusted pre-launch guard and real-client end-to-end tests.
+
 1. **Harden and validate the core.** Independent review, malformed-input fuzzing, broader ecosystem fixtures, resource isolation, MCP compatibility testing with real clients, and testing against legitimate repositories to measure false positives.
 2. **Authenticated data-only intelligence updates.** Publish small declarative rule bundles, never arbitrary Python or shell plugins. Use an established signed metadata system such as TUF, pinned trust roots, threshold signatures, expiration, version/rollback protections, strict size/schema validation, atomic activation, and last-known-good state. Surface stale/expired intelligence in every relevant verdict. Client updaters may use a maintained dependency: do not hand-roll cryptography to preserve a zero-dependency marketing claim. Distribute executable upgrades separately with reviewed releases and provenance.
 3. **Less intrusive execution review.** Build an execution broker that binds approval to a command, workspace snapshot, and dependency state. Isolate actual execution at the OS/container layer. Avoid reusing a clean verdict merely because a lockfile is unchanged.

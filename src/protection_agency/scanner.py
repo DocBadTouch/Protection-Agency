@@ -7,16 +7,18 @@ import re
 import time
 
 from .dependencies import parse_inventory
+from .coverage import audit_inventories
 from .filesystem import read_project_file
 from .models import Report
 from .rules import scan_text
+from .startup import CONFIG_DIRS, FORCED_NAMES, inspect as inspect_startup
 
 ALWAYS_SKIP = {".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache", ".cache"}
 INSTALLED = {"node_modules", ".venv", "venv", "vendor"}
 GENERATED = {"dist", "build", "coverage", ".next"}
 INVENTORIES = {"package.json", "package-lock.json", "npm-shrinkwrap.json", "pyproject.toml", "uv.lock", "poetry.lock"}
 UNSUPPORTED = {"yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb", "Pipfile", "Pipfile.lock", "pdm.lock", "setup.py", "setup.cfg"}
-SUFFIXES = {".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx", ".py", ".sh", ".bash", ".ps1", ".php", ".rb", ".go", ".rs", ".json", ".toml", ".yaml", ".yml", ".md", ".txt", ".in", ".lock"}
+SUFFIXES = {".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx", ".py", ".sh", ".bash", ".ps1", ".php", ".rb", ".go", ".rs", ".json", ".jsonc", ".toml", ".yaml", ".yml", ".md", ".mdc", ".rst", ".txt", ".in", ".lock", ".pth", ".gyp"}
 
 
 def inventory(path: str) -> bool:
@@ -28,13 +30,12 @@ def selected(path: str, level: str) -> bool:
     p = Path(path)
     if p.name.startswith(".env") or p.suffix in {".key", ".pem", ".p12", ".pfx"}:
         return False
-    if inventory(path) or p.name in UNSUPPORTED or p.name == ".npmrc":
+    if inventory(path) or p.name in UNSUPPORTED | FORCED_NAMES | {".npmrc"} or p.suffix == ".pth":
         return True
-    if level == "quick":
-        return (p.name in {"AGENTS.md", "CLAUDE.md", "SKILL.md", "Makefile", "Dockerfile"}
-                or any(part in {".vscode", ".claude", ".cursor", ".github", ".agents"} for part in p.parts)
-                or "config" in p.name.lower() and p.suffix in SUFFIXES)
-    return p.suffix in SUFFIXES or p.name in {"Makefile", "Dockerfile", ".bashrc"}
+    quick = (p.name in {"AGENTS.md", "CLAUDE.md", "SKILL.md", "Makefile", "Dockerfile"}
+             or bool(set(p.parts) & CONFIG_DIRS)
+             or "config" in p.name.lower() and p.suffix in SUFFIXES)
+    return quick or (level != "quick" and (p.suffix in SUFFIXES or p.name == ".bashrc"))
 
 
 class Scanner:
@@ -68,12 +69,14 @@ class Scanner:
                     for entry in children:
                         entries += 1
                         if entries > self.max_files * 8 or time.monotonic() - start > self.max_seconds:
-                            report.gap("Traversal budget exceeded; coverage is incomplete")
+                            report.inventory_gap("Traversal budget exceeded; coverage is incomplete")
                             pending.clear()
                             break
                         relative = str(Path(entry.path).relative_to(self.root))
                         if entry.is_symlink():
                             report.gap(f"Symlink skipped: {relative}")
+                            if inventory(relative) or entry.is_dir():
+                                report.inventory = "incomplete"
                         elif entry.is_dir(follow_symlinks=False):
                             if entry.name in ALWAYS_SKIP:
                                 continue
@@ -83,22 +86,24 @@ class Scanner:
                         elif selected(relative, level):
                             paths.append(relative)
                             if len(paths) > self.max_files:
-                                report.gap("File count budget exceeded; coverage is incomplete")
+                                report.inventory_gap("File count budget exceeded; coverage is incomplete")
                                 pending.clear()
                                 break
             except OSError:
-                report.gap("A project directory could not be enumerated")
+                report.inventory_gap("A project directory could not be enumerated")
         paths = sorted(paths[:self.max_files], key=lambda p: (not inventory(p), p))
+        if report.inventory != "incomplete" and any(inventory(p) for p in paths):
+            report.inventory = "complete"
         contents = {}
         deps = []
         for relative in paths:
             if time.monotonic() - start > self.max_seconds:
-                report.gap("Static scan time budget exceeded; coverage is incomplete")
+                report.inventory_gap("Static scan time budget exceeded; coverage is incomplete")
                 break
             cap = 8 * 1024 * 1024 if inventory(relative) else 1024 * 1024
             cap = min(cap, self.max_bytes - report.bytes_read)
             if cap <= 0:
-                report.gap("Byte budget exceeded; coverage is incomplete")
+                report.inventory_gap("Byte budget exceeded; coverage is incomplete")
                 break
             try:
                 raw = read_project_file(self.root, relative, cap)
@@ -106,26 +111,34 @@ class Scanner:
                 report.files += 1
                 if b"\x00" in raw:
                     report.gap(f"Binary content in selected file: {relative}")
+                    if inventory(relative):
+                        report.inventory = "incomplete"
                     continue
                 text = raw.decode("utf-8-sig")
             except (OSError, UnicodeError):
                 report.gap(f"Selected file unreadable, oversized, or non-UTF8: {relative}")
+                if inventory(relative):
+                    report.inventory = "incomplete"
                 continue
             contents[relative] = text
             digest = hashlib.sha256(raw).hexdigest()
             key = (relative, digest)
             if key in self.cache:
-                report.findings.extend(self.cache[key])
+                hits, gaps = self.cache[key]
                 report.cached_files += 1
                 self.cache.move_to_end(key)
             else:
                 hits = scan_text(relative, text)
-                self.cache[key] = hits
-                report.findings.extend(hits)
+                startup_hits, gaps = inspect_startup(relative, text)
+                hits.extend(startup_hits)
+                self.cache[key] = (hits, gaps)
                 if len(self.cache) > self.max_files:
                     self.cache.popitem(last=False)
+            report.findings.extend(hits)
+            for gap in gaps:
+                report.gap(gap)
             if Path(relative).name in UNSUPPORTED:
-                report.gap(f"Unsupported dependency inventory: {relative}")
+                report.inventory_gap(f"Unsupported dependency inventory: {relative}")
 
         from .dependencies import public_registry
         npm_public = all(public_registry(match[1].strip(), "npm")
@@ -133,17 +146,9 @@ class Scanner:
             for match in re.finditer(r"(?im)^\s*(?:@[^:\s]+:)?registry\s*=\s*(\S+)", text))
         for relative, text in contents.items():
             if inventory(relative):
-                deps.extend(parse_inventory(relative, text, report, npm_public))
-            if Path(relative).name == "package.json" and "node_modules" not in Path(relative).parts:
-                parent = str(Path(relative).parent)
-                sibling_locks = {str(Path(parent) / name) for name in ("package-lock.json", "npm-shrinkwrap.json")}
-                # A monorepo may be covered by a root lock; no reachability assertion.
-                if not (sibling_locks & contents.keys()) and not any(p in contents for p in ("package-lock.json", "npm-shrinkwrap.json")):
-                    report.gap(f"npm project lacks a supported transitive lockfile: {relative}")
-            if Path(relative).name == "pyproject.toml":
-                parent = Path(relative).parent
-                if not any(str(parent / name) in contents for name in ("uv.lock", "poetry.lock")):
-                    report.gap(f"Python project lacks a supported transitive lockfile: {relative}")
+                locked = any(str(Path(relative).parent / name) in contents for name in ("uv.lock", "poetry.lock"))
+                deps.extend(parse_inventory(relative, text, report, npm_public, locked))
+        audit_inventories(contents, deps, report)
         locked = {(d.ecosystem, d.name, d.version) for d in deps
                   if Path(d.path).name in {"package-lock.json", "npm-shrinkwrap.json", "uv.lock", "poetry.lock"}}
         unique = sorted({d for d in deps if not (Path(d.path).name in {"package.json", "pyproject.toml"}

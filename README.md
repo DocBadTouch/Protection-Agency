@@ -6,15 +6,21 @@ Local security screening for coding agents, created by [DocBadTouch](https://git
 
 **Status: working alpha, not a security boundary or a guarantee of safety.** It combines a command-line scanner, a small MCP stdio server, a Claude Code hook adapter, and a portable agent skill. No LLM calls. No third-party runtime dependencies. Python 3.11+ on Linux/macOS.
 
+The `0.2.0a1` development prerelease adds proposed-dependency checks, inventory consistency checks, startup-configuration review, documentation context, and offline diagnostics. See [the changelog](CHANGELOG.md).
+
 ## What works today
 
 - Read npm lockfiles v2/v3, npm shrinkwrap, exact npm manifest pins, `uv.lock`, `poetry.lock`, exact Python requirements pins, and exact PEP 621 manifest pins.
+- Check represented npm direct/transitive entries and manifest declarations, plus common stable-version Python constraints against supported locks. Missing, conflicting, and unsupported declarations remain coverage gaps.
+- Check proposed exact npm/PyPI releases through the CLI or MCP before installation. The Bash adapter denies recognized installs of bundled known-malicious npm releases even when they are absent from the project.
 - Flag exact published PolinRider npm releases from a dated, attributed intelligence snapshot.
 - Detect selected encoded execution patterns, download-to-shell commands, suspicious instructions, editor autorun tasks, and lifecycle scripts. These are review signals; benign examples can match.
 - Optionally query [OSV](https://osv.dev/) for current version-specific advisories, including `MAL-*` malicious-package records. Generic advisories request review; they are not automatically labeled critical.
 - Scan without installing dependencies, running scripts, importing project modules, invoking Git, or loading project plugins.
 - Return compact summaries; retrieve details only when needed. Cache static findings by file-content hash in the MCP process.
 - Provide Claude `SessionStart` context and a conservative `PreToolUse` Bash gate.
+- Inventory selected project hooks, MCP launch configurations, editor autorun tasks, Python `.pth`/startup modules, and native/Python build configuration without starting any of them. Common JSON comments and trailing commas are supported in recognized startup settings.
+- Keep signatures in documentation visible as low-priority review findings. Agent instructions and executable/configuration files retain their normal priority.
 
 ## Start without installing packages
 
@@ -24,6 +30,7 @@ Keep the scanner in a trusted location **outside the project you are inspecting*
 python3 -I /trusted/protection-agency/guard.py scan /path/to/project
 python3 -I /trusted/protection-agency/guard.py scan /path/to/project --online
 python3 -I /trusted/protection-agency/guard.py scan /path/to/project --level deep --online --full
+python3 -I /trusted/protection-agency/guard.py doctor --root /path/to/project
 ```
 
 `-I` isolates Python startup from project paths and Python environment overrides. The launcher adds only its own trusted `src` directory. No `pip install` is required. Distribution metadata is provided for future packaging; this project has not yet been released on PyPI or npm.
@@ -51,6 +58,27 @@ Defaults cap scans at 5,000 selected files, 40,000 traversed entries, 32 MiB of 
 
 `no_findings` never means “safe.” Offline results require review because current advisories were not checked. High-priority pattern matches can be benign examples or research code; inspect evidence before drawing an incident conclusion.
 
+Coverage separately reports `inventory` (`complete`, `incomplete`, or `not_present`), advisory state, gaps, and a `complete` boolean for the requested scan scope. Complete coverage can still contain findings. Checks cover a documented subset of declaration syntax; they do not reproduce a package manager's resolver or verify installed artifacts.
+
+## Check a proposed dependency
+
+```bash
+python3 -I /trusted/protection-agency/guard.py check-dependency npm cdeops 13.5.31
+python3 -I /trusted/protection-agency/guard.py check-dependency PyPI requests 2.32.0 --registry https://pypi.org/simple --online
+```
+
+The first example checks inert release metadata and exits `1` because the bundled research identifies that release. Neither example installs or downloads a package artifact. Proposed versions must be exact supported releases for an OSV lookup; ranges, tags, and missing versions remain unresolved review cases. Explicit public registry provenance and `--online` are both required to send a proposed identity to OSV. Registry URLs are classified locally; the only request destination is OSV. Private, unspecified, credential-bearing, or unsupported registry URLs are not queried.
+
+`check-dependency` covers **one exact release**, with transitive packages and artifact contents explicitly outside its scope. A zero-match result is limited to that release and lookup time. It does not authorize installation or imply the dependency graph is safe.
+
+The command adapter recognizes simple npm/pnpm/yarn/bun install/add commands, npx/bunx invocation targets, pip installs (including `python -m pip` and `uv pip`), and uv/Poetry add commands. It extracts at most 32 targets, never follows requirements files or evaluates shell syntax, and keeps unsupported commands subject to review. Known malicious exact npm identities are denied offline. Eligible proposed releases use a batched OSV check with one shared network budget when online mode and explicit public registry options are present. Extra indexes and unknown options suppress proposed-target queries. This adapter is not a complete shell or package-manager parser.
+
+## Verify scanner diagnostics
+
+`doctor` runs six offline checks of the runtime, secure file-reading support, known malicious install classification, documentation context, startup configuration, and missing lock entries. It also warns about a scanner installed inside the target root or Python startup without isolation. Its exit code is `0` for passing self-checks and `1` for failed self-checks; invalid roots produce the ordinary check-error exit code `3`.
+
+**Doctor does not certify that a live client has installed or enforced the hook.** It reports `live_client_enforcement: not_verified`. Verify the actual client, hook order, failure behavior, and sandbox separately before relying on them.
+
 ## MCP setup
 
 Copy [examples/mcp.json](examples/mcp.json) into your client's MCP configuration after replacing **all absolute paths**. The server stays restricted to the root selected at startup. A tool call cannot switch the root or turn networking on.
@@ -66,13 +94,14 @@ Copy [examples/mcp.json](examples/mcp.json) into your client's MCP configuration
 }
 ```
 
-Remove `--online` for offline use. Three tools are exposed:
+Remove `--online` for offline use. Four tools are exposed:
 
 | Tool | Purpose |
 | --- | --- |
 | `scan_project(level)` | Return a summary, up to five findings, and coverage gaps |
 | `get_findings(report_id, offset?, finding_id?)` | Retrieve up to ten detailed findings per request |
 | `check_command(command)` | Classify command text without executing it |
+| `check_dependency(ecosystem, name, version?, registry?)` | Inspect a proposed release with explicit coverage limits |
 
 The last eight reports remain in process memory. Restarting the server discards them. No scanner reports are written into the inspected repository. Static findings are cached by content hash, but files are reread on every scan. Online advisory queries are fresh on every scan; an unchanged lockfile does not suppress intelligence refresh. MCP results are evidence: they do not intercept the client's other tools.
 
@@ -81,7 +110,9 @@ The last eight reports remain in process memory. Restarting the server discards 
 [examples/claude-settings.json](examples/claude-settings.json) contains a configuration fragment for a trusted **user-level** Claude settings file. Replace the interpreter and scanner paths, merge it with existing hooks, and restart Claude. Do not put the policy's executable code in an untrusted target repository.
 
 - `SessionStart` screens the project and adds a short context report. This event does not block actions.
+- Startup findings identify execution surfaces; this SessionStart adapter cannot intercept other startup hooks or editor tasks that already run. A trusted pre-launch enforcement layer is still planned.
 - `PreToolUse` screens Bash command text. Recognized high-priority patterns are denied. A very small set of simple read commands returns no decision, leaving normal permissions in control. Other commands trigger a standard project scan, then a deny or a request for user review. This includes installs, builds, tests, inline interpreters, and Git commands that could invoke helpers.
+- Project advisory status and proposed-release advisory status are reported separately. A project with no matching dependencies does not establish coverage for a proposed installation.
 - The example sets `onFailure: "block"` and a 90-second timeout. That failure behavior requires **Claude Code v2.1.295+**. Verify it on the client you actually use: temporarily point the hook at a missing file and confirm that a Bash call is blocked. Older clients may continue when hooks cannot start or time out.
 - Only the Bash tool is integrated. Other execution tools, MCP servers that execute code, IDE autorun, another terminal, and users disabling the hook are outside this adapter's control. Keep sandboxing and native permissions enabled.
 
