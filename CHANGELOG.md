@@ -7,6 +7,7 @@
 - Extend `doctor` with configuration validation and an optional trusted hook protocol probe. Never execute arbitrary settings commands. Keep native client version/loading/enforcement explicitly unverified; Claude Code v2.1.295+ is required for the installed failure policy.
 - Flag project Claude `disableAllHooks: true` as high-priority `PA408`; refuse hook installation when explicit user/root-project disabling is present. Invalid controls and duplicate configuration keys remain gaps/errors.
 - Add 31 integration regression tests for setup, removal, permissions, backups, conflicts, failure handling, disabled controls, and trusted subprocess probes. The full suite contains 145 passing test methods locally; live Claude sessions remain unverified.
+- Document every CLI command and setup/diagnostic status, custom-profile selection, source upgrades and path relocation, contributor/security requirements, and verified six-job CI evidence. Preserve historical benchmark versions and distinguish protocol probes from native enforcement throughout the documentation.
 
 ## 0.2.0a2 — development prerelease
 

@@ -4,8 +4,14 @@ Start with an issue describing a parser case, detection signal, bypass, or user 
 
 Run `python3 -I -m unittest discover -s tests -v` from the project directory. No third-party runtime dependencies are needed. Add meaningful inert fixtures for security behavior; never retrieve or execute malware during tests.
 
+CI runs that suite on Python 3.11, 3.12, and 3.13 on Linux/macOS. See [validation](docs/VALIDATION.md) for what the tests establish and what remains unverified. Hook/launcher tests must use owned temporary projects, external temporary settings, and inert trusted processes; never edit the contributor's real agent profile or launch a model session as a unit-test side effect.
+
 Detection contributions must include a public source, an exact scope/version where applicable, evidence type, expected false positives, and a review action. A suspicious string is not proof of compromise. Do not add family-wide package bans when evidence only names particular releases.
 
 Do not add target-code execution, repository-loaded plugins, unbounded reads, silent online requests, raw secret/source excerpts in results, or a fail-open safety verdict. Follow the privacy model and keep summaries compact.
+
+Settings-edit changes need regression coverage for unrelated settings, later user edits, no-write previews, private backups, unsafe file paths/permissions, conflicts, and failures before/after replacement. Keep configuration writes in explicit setup operations. Scans/MCP must remain read-only, and diagnostics may run only reconstructed trusted guard arguments on inert events. The separate user-invoked launcher may start an explicitly selected trusted external client within its documented boundary; it is not permission to execute project code during inspection.
+
+Keep [README.md](README.md), the [CLI reference](docs/CLI.md), [architecture](docs/ARCHITECTURE.md), [threat model](docs/THREAT-MODEL.md), [validation](docs/VALIDATION.md), [roadmap](docs/ROADMAP.md), [changelog](CHANGELOG.md), the [portable skill](skills/protection-agency/SKILL.md), and affected [examples](examples/) consistent with behavior changes. Check documented options against `python3 -I guard.py <command> --help` and verify relative links/JSON examples. Keep historical benchmark measurements tied to the version actually measured; do not relabel them as current performance. Configuration/protocol tests must never be described as verified native-client enforcement.
 
 Respect original research licenses and attribution. Contributions are under this repository's MIT license. Keep creator attribution and acknowledge subsequent contributors in release notes. No CLA is required by this source checkout.

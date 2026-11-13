@@ -44,6 +44,8 @@ Diagnostics validate the canonical installed groups and reject marked modificati
 
 Project `disableAllHooks: true` is high-priority evidence that user hooks can be disabled. Setup and doctor conservatively inspect the selected root's `.claude/settings.json` and `.claude/settings.local.json`, without computing the full effective hierarchy. The scanner also flags recognized nested settings. Managed policy, CLI overrides, ancestor/additional-workspace settings, plugins, and other native configuration require separate review. These commands do not silently override explicit hook-disable settings or grant native permissions.
 
+The default settings path is the home `.claude/settings.json` file. Custom client configuration directories and command-line overrides are not discovered; the caller must select the same intended profile with `--settings`. Successful edits to another file do not install protection in the active native client. Absolute source/interpreter paths can also become stale after relocation or upgrades. Use the [setup/diagnostic statuses](CLI.md) to distinguish configuration observations from actual client enforcement.
+
 ## User-invoked launch boundary
 
 The scanner, Python runtime, chosen external client installation, caller-supplied client arguments, and trusted user/global configuration are part of the trusted computing base. `launch` requires Python `-I`, an external trusted scanner, and an absolute client executable outside the project. It does not authenticate the terminal operator, attest the chosen binary's provenance, or verify every library the client will load.
