@@ -45,6 +45,14 @@ def inspect(path: str, text: str) -> tuple[list[Finding], list[str]]:
         data = jsondata.loads(text)
         if not isinstance(data, dict):
             raise ValueError("configuration must be an object")
+        if ".claude" in p.parts and p.name in {"settings.json", "settings.local.json"} and "disableAllHooks" in data:
+            if not isinstance(data["disableAllHooks"], bool):
+                raise ValueError("invalid hook-disable setting")
+            if data["disableAllHooks"]:
+                findings.append(Finding("PA408", "high", path, 1,
+                    "Project configuration disables agent hooks",
+                    "Do not rely on user-level guard hooks while this setting is active; inspect the client settings hierarchy.",
+                    evidence="security_control_override", context="configuration"))
         if "hooks" in data:
             if not isinstance(data["hooks"], dict) or any(not isinstance(v, (dict, list)) for v in data["hooks"].values()):
                 raise ValueError("unsupported hooks configuration")

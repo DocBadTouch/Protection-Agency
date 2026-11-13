@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0a3 — development prerelease
+
+- Add explicit `install-hooks` / `uninstall-hooks` for Claude user settings, offline by default with optional online hooks. Preserve unrelated configuration and later user edits; adopt exact legacy handlers and use a reserved ownership marker.
+- Add no-write previews, bounded no-follow configuration reads, strict duplicate-key/nesting checks, private original-byte backups, atomic replacement, cooperative locking, and detected concurrent-edit refusal. Report post-commit durability failures as applied changes with a warning. These protections cannot prevent a noncooperating editor racing the final rename.
+- Extend `doctor` with configuration validation and an optional trusted hook protocol probe. Never execute arbitrary settings commands. Keep native client version/loading/enforcement explicitly unverified; Claude Code v2.1.295+ is required for the installed failure policy.
+- Flag project Claude `disableAllHooks: true` as high-priority `PA408`; refuse hook installation when explicit user/root-project disabling is present. Invalid controls and duplicate configuration keys remain gaps/errors.
+- Add 31 integration regression tests for setup, removal, permissions, backups, conflicts, failure handling, disabled controls, and trusted subprocess probes. The full suite contains 145 passing test methods locally; live Claude sessions remain unverified.
+- Document every CLI command and setup/diagnostic status, custom-profile selection, source upgrades and path relocation, contributor/security requirements, and verified six-job CI evidence. Preserve historical benchmark versions and distinguish protocol probes from native enforcement throughout the documentation.
+
 ## 0.2.0a2 — development prerelease
 
 - Add the user-invoked `launch` gate with a required trusted external client, isolated Python startup, no shell expansion, and dry-run receipts.

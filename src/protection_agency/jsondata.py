@@ -2,9 +2,23 @@
 import json
 
 
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON configuration key")
+        result[key] = value
+    return result
+
+
+def _invalid_constant(value):
+    raise ValueError("non-finite JSON configuration value")
+
+
 def loads(text: str):
     chars = list(text)
     quoted, escaped, index = False, False, 0
+    depth = 0
     while index < len(chars):
         char = chars[index]
         if quoted:
@@ -16,6 +30,12 @@ def loads(text: str):
                 quoted = False
         elif char == '"':
             quoted = True
+        elif char in {"{", "["}:
+            depth += 1
+            if depth > 64:
+                raise ValueError("JSON configuration exceeds nesting budget")
+        elif char in {"}", "]"}:
+            depth -= 1
         elif char == "/" and index + 1 < len(chars) and chars[index + 1] in {"/", "*"}:
             block = chars[index + 1] == "*"
             end = text.find("*/", index + 2) if block else text.find("\n", index + 2)
@@ -48,4 +68,4 @@ def loads(text: str):
                 following += 1
             if following < len(chars) and chars[following] in {"}", "]"}:
                 chars[index] = " "
-    return json.loads("".join(chars))
+    return json.loads("".join(chars), object_pairs_hook=_unique_object, parse_constant=_invalid_constant)

@@ -6,9 +6,9 @@ Local security screening for coding agents, created by [DocBadTouch](https://git
 
 **Status: working alpha, not a security boundary or a guarantee of safety.** It combines a command-line scanner, a small MCP stdio server, a Claude Code hook adapter, and a portable agent skill. No LLM calls. No third-party runtime dependencies. Python 3.11+ on Linux/macOS.
 
-The `0.2.0a1` development prerelease adds proposed-dependency checks, inventory consistency checks, startup-configuration review, documentation context, and offline diagnostics. See [the changelog](CHANGELOG.md).
+The current source version is **`0.2.0a3`**. It includes proposed-dependency and inventory checks, startup-configuration review, a user-invoked pre-launch gate, and explicit Claude user-hook setup/removal with private backups and configuration/protocol diagnostics. Project settings that disable hooks produce a high-priority finding. See [the changelog](CHANGELOG.md) for milestone history. This source version is not a published package or tagged release.
 
-The `0.2.0a2` development prerelease adds a user-invoked **pre-launch gate**: inspect first, stop on incomplete/high-priority results, optionally review lower-priority findings, recheck selected content, then start an explicitly chosen trusted client. It does not provide a sandbox.
+Use the [CLI reference](docs/CLI.md) for every command, option, exit status, and hook diagnostic result. Setup instructions are below; [validation](docs/VALIDATION.md), [architecture](docs/ARCHITECTURE.md), [the threat model](docs/THREAT-MODEL.md), and [the roadmap](docs/ROADMAP.md) describe evidence, boundaries, and planned work.
 
 ## What works today
 
@@ -21,12 +21,15 @@ The `0.2.0a2` development prerelease adds a user-invoked **pre-launch gate**: in
 - Scan without installing dependencies, running scripts, importing project modules, invoking Git, or loading project plugins.
 - Return compact summaries; retrieve details only when needed. Cache static findings by file-content hash in the MCP process.
 - Provide Claude `SessionStart` context and a conservative `PreToolUse` Bash gate.
+- Install/remove those user hooks on request, preserve unrelated settings, and check their configuration with `doctor`.
 - Inventory selected project hooks, MCP launch configurations, editor autorun tasks, Python `.pth`/startup modules, and native/Python build configuration without starting any of them. Common JSON comments and trailing commas are supported in recognized startup settings.
 - Keep signatures in documentation visible as low-priority review findings. Agent instructions and executable/configuration files retain their normal priority.
 
 ## Start without installing packages
 
 Keep the scanner in a trusted location **outside the project you are inspecting**. Review its source first. It is itself trusted executable code.
+
+Obtain the source from [this repository](https://github.com/DocBadTouch/Protection-Agency) and select a reviewed revision. The commands below assume that checkout is at `/trusted/protection-agency`; replace placeholder paths with your actual absolute paths. No package-manager installation is needed.
 
 ```bash
 python3 -I /trusted/protection-agency/guard.py scan /path/to/project
@@ -77,9 +80,9 @@ The command adapter recognizes simple npm/pnpm/yarn/bun install/add commands, np
 
 ## Verify scanner diagnostics
 
-`doctor` runs six offline checks of the runtime, secure file-reading support, known malicious install classification, documentation context, startup configuration, and missing lock entries. It also warns about a scanner installed inside the target root or Python startup without isolation. Its exit code is `0` for passing self-checks and `1` for failed self-checks; invalid roots produce the ordinary check-error exit code `3`.
+`doctor` runs six offline checks of the runtime, secure file-reading support, known malicious install classification, documentation context, startup configuration, and missing lock entries. It also warns about a scanner installed inside the target root or Python startup without isolation. Add `--root /path/to/project --settings /absolute/user/settings.json` to inspect installed Claude hooks. Add `--probe-hooks` to exercise only the trusted guard executable with inert hook events. These checks make no advisory requests, even for an online hook configuration. Its exit code is `0` when requested checks pass and `1` when a check fails; invalid roots produce the ordinary check-error exit code `3`.
 
-**Doctor does not certify that a live client has installed or enforced the hook.** It reports `live_client_enforcement: not_verified`. Verify the actual client, hook order, failure behavior, and sandbox separately before relying on them.
+**Doctor does not certify that a live client has installed or enforced the hook.** It reports `live_client_enforcement: not_verified`. Verify the actual client, hook order, failure behavior, and sandbox separately before relying on them. The [CLI reference](docs/CLI.md#doctor) explains configuration/probe statuses and troubleshooting.
 
 ## Gate agent startup before the client starts
 
@@ -135,7 +138,28 @@ The last eight reports remain in process memory. Restarting the server discards 
 
 ## Claude Code hooks and the portable skill
 
-[examples/claude-settings.json](examples/claude-settings.json) contains a configuration fragment for a trusted **user-level** Claude settings file. Replace the interpreter and scanner paths, merge it with existing hooks, and restart Claude. Do not put the policy's executable code in an untrusted target repository.
+From a trusted source checkout outside the target project, preview and then install the hooks:
+
+```bash
+python3 -I /trusted/protection-agency/guard.py install-hooks --project /path/to/project --dry-run --online
+python3 -I /trusted/protection-agency/guard.py install-hooks --project /path/to/project --online
+python3 -I /trusted/protection-agency/guard.py doctor --root /path/to/project --settings "$HOME/.claude/settings.json" --probe-hooks
+```
+
+The default destination is `~/.claude/settings.json`; use an absolute `--settings` path on either setup command for a custom user profile. Match it to the profile your client actually loads: the installer does not discover `CLAUDE_CONFIG_DIR` or CLI configuration overrides. The explicit `--project` establishes the untrusted root and checks its root Claude hook-disable controls; setup does not scan or approve the rest of that project. Omit `--online` to install offline hooks. Reinstalling with different online options replaces only this tool's hooks. Restart Claude after changes and inspect `/hooks` to confirm the origin, events, and commands. The installer does not start Claude, change native permissions, or configure MCP/skills.
+
+Existing JSON-with-comments is parsed as data and normalized to formatted JSON when an edit is needed. Other settings and hooks are preserved semantically. Before replacement, the original bytes are saved beside the file as `settings.json.protection-agency.<random>.bak`, mode `0600`. Backups may contain your existing secrets: retain or delete them locally as appropriate. No settings contents are printed. The installer requires user-owned configuration files/directories without group/world write access, refuses symlink paths and hard-linked files, limits settings to 1 MiB and JSON nesting to 64 levels, rejects duplicate keys, and detects conflicting edits. An advisory lock coordinates setup processes; another editor can still race the final check and rename. Avoid editing settings concurrently.
+
+```bash
+python3 -I /trusted/protection-agency/guard.py uninstall-hooks --project /path/to/project --dry-run
+python3 -I /trusted/protection-agency/guard.py uninstall-hooks --project /path/to/project
+```
+
+Removal is surgical: it removes reserved `statusMessage: "Protection Agency security check"` handlers and exact legacy handlers for this trusted installation, preserving later user edits. The marker is an ownership convention, not authentication; reserve it for this tool. Uninstall does not restore an old backup over current settings or delete backups/the empty coordination lock. Setup exits `2` on disabled hooks, a detected conflict, or a post-replacement durability warning; check `changed` to distinguish an applied edit. Other setup errors exit `3`. Dry runs create no files or directories.
+
+The doctor configuration check requires the canonical two installed groups, matching trusted executable/arguments, Bash matcher, timeout, and failure policy. Modified or duplicate marked hooks fail inspection. The optional probe reconstructs trusted arguments rather than running commands from settings. It verifies a known-malicious install denial, a simple-read response, and malformed-event failure. `configured`/`probe: passed` do not mean Claude loaded the file, supports its fields, or enforces the expected order. The installed client version is not checked automatically.
+
+For manual setup, [examples/claude-settings.json](examples/claude-settings.json) supplies the same hook fragment. Replace all absolute paths and merge into trusted **user-level** settings outside the target repository. A project `disableAllHooks: true` produces high-priority finding `PA408`; setup refuses explicit user/project disabling and never flips that choice. The doctor checks root project/local settings for that control, conservatively reporting its presence rather than reproducing the complete native settings hierarchy. Managed policy, parent/additional workspaces, CLI flags, and plugin configuration require native-client review. See the official [settings hierarchy](https://code.claude.com/docs/en/settings) and [hook contract](https://code.claude.com/docs/en/hooks).
 
 - `SessionStart` screens the project and adds a short context report. This event does not block actions.
 - Startup findings identify execution surfaces; the SessionStart adapter cannot intercept other startup hooks or editor tasks that already run. The separate user-invoked `launch` gate inspects before starting a selected client, within its documented scope.
@@ -144,13 +168,15 @@ The last eight reports remain in process memory. Restarting the server discards 
 - The example sets `onFailure: "block"` and a 90-second timeout. That failure behavior requires **Claude Code v2.1.295+**. Verify it on the client you actually use: temporarily point the hook at a missing file and confirm that a Bash call is blocked. Older clients may continue when hooks cannot start or time out.
 - Only the Bash tool is integrated. Other execution tools, MCP servers that execute code, IDE autorun, another terminal, and users disabling the hook are outside this adapter's control. Keep sandboxing and native permissions enabled.
 
-The [portable skill](skills/protection-agency/SKILL.md) guides agents through scan, review, and rescan. Install it in the trusted skill location supported by your client. Skills are instructions, so they are weaker than enforced hooks. This alpha supplies an example and does not modify your agent configuration automatically.
+The [portable skill](skills/protection-agency/SKILL.md) guides agents through scan, review, and rescan. Install it in the trusted skill location supported by your client. Skills are instructions, so they are weaker than enforced hooks. Scans, MCP calls, and doctor checks never install or repair hooks; settings edits require an explicit setup command.
 
 ## Does it update itself?
 
 **Live advisories: yes, when an online scan runs. Executable code and bundled rules: no.**
 
 OSV maintains its advisory database independently. This tool requests current results each time, subject to upstream coverage and publication delay. The bundled PolinRider snapshot was reviewed on **2026-11-10** and does not refresh itself. Changing the scanner or its rules currently means reviewing and upgrading to a new repository revision/release. There is no background updater, hosted backend, telemetry, or automatic installation.
+
+For source upgrades, review the desired revision and update the trusted checkout deliberately. Stop running MCP processes before replacing their source, then restart them. Re-run `doctor`; after a checkout/interpreter relocation or hook-profile change, preview and re-run `install-hooks` with the intended online mode and settings path, then repeat configuration/protocol checks and restart Claude. Absolute hook/MCP paths do not migrate themselves. Marked hooks can be replaced by the current installer; unmarked legacy hooks pointing to an old location need manual review. Keep existing settings/backups private throughout the upgrade.
 
 The next planned update layer is a **data-only, authenticated rule feed** with release provenance, schema validation, freshness/rollback checks, and last-known-good behavior. It is a design in [the roadmap](docs/ROADMAP.md), not implemented functionality. A security tool's update channel must not become a new arbitrary-code execution path.
 

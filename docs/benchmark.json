@@ -1,4 +1,5 @@
 {
+  "version": "0.1.0",
   "fixture": "2500 synthetic npm entries + 500 benign JS files",
   "scan_ms": [
     183.06,

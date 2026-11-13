@@ -32,6 +32,15 @@ def main(argv=None) -> int:
     dependency.add_argument("--online", action="store_true")
     doctor = commands.add_parser("doctor", help="Run offline scanner diagnostics; does not certify live agent enforcement")
     doctor.add_argument("--root", type=Path)
+    doctor.add_argument("--settings", type=Path, help="Inspect Claude user settings outside the project")
+    doctor.add_argument("--probe-hooks", action="store_true", help="Exercise only the reconstructed trusted guard hook; not the native client")
+    for action in ("install-hooks", "uninstall-hooks"):
+        setup = commands.add_parser(action, help="Manage only Protection Agency's Claude user hooks with private backups")
+        setup.add_argument("--project", type=Path, required=True)
+        setup.add_argument("--settings", type=Path, default=Path.home() / ".claude/settings.json")
+        setup.add_argument("--dry-run", action="store_true")
+        if action == "install-hooks":
+            setup.add_argument("--online", action="store_true")
     launch_parser = commands.add_parser("launch", help="Inspect before launching a trusted external client; does not provide a sandbox")
     launch_parser.add_argument("root", type=Path)
     launch_parser.add_argument("--online", action="store_true")
@@ -48,6 +57,9 @@ def main(argv=None) -> int:
         if not launch_command:
             parser.error("launch requires a client executable after --")
     args = parser.parse_args(argv)
+    if args.subcommand == "doctor" and ((args.settings is not None and args.root is None)
+                                       or args.probe_hooks and args.settings is None):
+        parser.error("doctor configuration checks require --root and --settings; --probe-hooks also requires both")
     try:
         if args.subcommand == "scan":
             report = Scanner(args.root, online=args.online).scan(args.level)
@@ -67,9 +79,15 @@ def main(argv=None) -> int:
             return {"no_findings": 0, "block": 1, "review": 2}[result["decision"]]
         if args.subcommand == "doctor":
             from .doctor import diagnose
-            result = diagnose(args.root)
+            result = diagnose(args.root, settings=args.settings, probe_hooks=args.probe_hooks)
             print(json.dumps(result, indent=2))
             return 1 if result["status"] == "failed" else 0
+        if args.subcommand in {"install-hooks", "uninstall-hooks"}:
+            from .integration import configure
+            result = configure("install" if args.subcommand == "install-hooks" else "uninstall",
+                               args.settings, args.project, dry_run=args.dry_run, online=getattr(args, "online", False))
+            print(json.dumps(result, indent=2))
+            return 2 if result["status"] in {"disabled", "disabled_by_project", "conflict", "applied_with_warning"} else 0
         if args.subcommand == "launch":
             from .launcher import launch
             return launch(args.root, launch_command, online=args.online, review=args.review,
