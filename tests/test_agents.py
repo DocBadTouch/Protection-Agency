@@ -66,6 +66,13 @@ class AgentsTests(unittest.TestCase):
         for agent in ("codex", "claude"):
             self.assertEqual(handle(self.event("pwd"), agent=agent), {})
 
+    def test_windows_package_shim_names_preserve_malicious_target_detection(self):
+        for command in ('npm.cmd install cdeops@13.5.31', 'npm.exe install cdeops@13.5.31',
+                        '"C:\\Program Files\\nodejs\\npm.cmd" install cdeops@13.5.31'):
+            result = handle(self.event(command), agent="codex")
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertIn("malicious", result["hookSpecificOutput"]["permissionDecisionReason"].lower())
+
     def test_codex_malformed_input_is_explicit_json_denial_with_exit_zero(self):
         result = self.cli("hook", "--agent", "codex", input="{inert-private-bad-input")
         self.assertEqual(result.returncode, 0)

@@ -96,6 +96,23 @@ class WindowsTests(unittest.TestCase):
                 finally:
                     win.close(handle)
 
+    def test_owner_rights_acl_is_accepted_only_with_validated_owner(self):
+        from protection_agency import windows_files as win
+        import ctypes as C
+        with win.pin_directory(self.settings.parent, create=True, secure=True, writable=True) as parent:
+            descriptor = C.c_void_p()
+            win.checked(win.convert_sd("O:" + win.user_sid() + "D:P(A;;FA;;;OW)(A;;FA;;;SY)(A;;FA;;;BA)",
+                                       1, C.byref(descriptor), None))
+            try:
+                attributes = win.SecurityAttributes(C.sizeof(win.SecurityAttributes), descriptor, False)
+                handle = win.open_relative(parent, "owner-rights.json", 0xC0000000, create=True, attributes=attributes)
+                try:
+                    self.assertTrue(win.owner_and_acl(handle)[0])
+                finally:
+                    win.close(handle)
+            finally:
+                win.local_free(descriptor)
+
     def test_atomic_replace_preserves_later_user_settings_and_removes_only_owned_hooks(self):
         configure("install", self.settings, self.project)
         data = json.loads(self.settings.read_text())
@@ -164,6 +181,8 @@ class WindowsTests(unittest.TestCase):
         with win.pin_directory(self.project):
             with self.assertRaises(OSError):
                 self.project.rename(self.base / "moved")
+            with self.assertRaises(OSError):
+                win.open_handle(self.project, 0x40000000, share=7)
 
     def test_codex_cmd_and_powershell_relay_preserve_denial_with_special_paths(self):
         from protection_agency.agents import codex_command

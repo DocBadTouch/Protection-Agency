@@ -1,5 +1,5 @@
-"""Native local-NTFS access. Hold no-write/no-delete directory handles while
-using paths, reject every reparse component, and bound ordinary file reads.
+"""Native local-NTFS access. Pin directories, use handle-relative operations,
+reject every reparse component, and bound ordinary file reads.
 
 Loaded only on Windows. No shell command or privilege adjustment is used.
 """
@@ -111,9 +111,10 @@ def extended(path):
 
 
 def component(name):
-    if (not name or name in {".", ".."} or name[-1:] in {".", " "}
+    if (not name or len(name.encode("utf-16-le")) > 510 or name in {".", ".."} or name[-1:] in {".", " "}
             or any(ord(c) < 32 or c in '<>:"/\\|?*' for c in name)
-            or name.split(".", 1)[0].upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}):
+            or name.split(".", 1)[0].rstrip(" ").upper() in {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$",
+                 *(f"COM{i}" for i in "123456789¹²³"), *(f"LPT{i}" for i in "123456789¹²³")}):
         raise OSError("unsupported Windows path component")
 
 
@@ -228,8 +229,12 @@ def owner_and_acl(handle):
         raise C.WinError(error)
     try:
         trusted = {user_sid(), "S-1-5-18", "S-1-5-32-544"}
-        if not owner.value or sid_text(owner) not in trusted or not dacl.value:
+        owner_name = sid_text(owner) if owner.value else ""
+        if owner_name not in trusted or not dacl.value:
             raise ValueError("configuration must have a current-user or trusted system owner and an explicit DACL")
+        # OWNER RIGHTS means this object's owner, already validated above. It
+        # is used by Python 3.12+ private temporary-directory ACLs.
+        trusted.add("S-1-3-4")
         header = C.string_at(dacl, 8)
         size, count = int.from_bytes(header[2:4], "little"), int.from_bytes(header[4:6], "little")
         if size < 8 or size > 65535:
@@ -251,7 +256,7 @@ def owner_and_acl(handle):
                     raise ValueError("configuration grants write access to another principal")
                 if mask:
                     private = False
-        return private, hashlib.sha256(C.string_at(dacl, size) + user_sid().encode()).hexdigest()
+        return private, hashlib.sha256(C.string_at(dacl, size) + owner_name.encode() + user_sid().encode()).hexdigest()
     finally:
         local_free(descriptor)
 
