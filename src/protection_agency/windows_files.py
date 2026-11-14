@@ -179,7 +179,7 @@ def open_relative(parent, name, access, *, share=1, create=False, open_if=False,
     handle, status = W.HANDLE(), IOStatus()
     options = 0x20 | (1 if create and directory else 0x200000)
     disposition = 2 if create else 3 if open_if else 1
-    nt_checked(nt_create(C.byref(handle), access, C.byref(descriptor), C.byref(status), None,
+    nt_checked(nt_create(C.byref(handle), access | 0x100000, C.byref(descriptor), C.byref(status), None,
                          0x10 if directory else 0x80, share, disposition, options, None, 0))
     return handle.value
 
@@ -227,14 +227,14 @@ def owner_and_acl(handle):
     if error:
         raise C.WinError(error)
     try:
-        if not owner.value or sid_text(owner) != user_sid() or not dacl.value:
-            raise ValueError("configuration must be user-owned with an explicit DACL")
+        trusted = {user_sid(), "S-1-5-18", "S-1-5-32-544"}
+        if not owner.value or sid_text(owner) not in trusted or not dacl.value:
+            raise ValueError("configuration must have a current-user or trusted system owner and an explicit DACL")
         header = C.string_at(dacl, 8)
         size, count = int.from_bytes(header[2:4], "little"), int.from_bytes(header[4:6], "little")
         if size < 8 or size > 65535:
             raise ValueError("unsupported configuration DACL")
         private = True
-        trusted = {user_sid(), "S-1-5-18", "S-1-5-32-544"}
         for index in range(count):
             ace = C.c_void_p()
             checked(get_ace(dacl, index, C.byref(ace)))
