@@ -16,6 +16,7 @@ from protection_agency.osv import OSVClient
 PROJECT = Path(__file__).resolve().parents[1]
 
 
+@unittest.skipIf(os.name == "nt", "POSIX permissions/locks contract; native Windows parity is in test_windows")
 class IntegrationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="pa-integration-test-")

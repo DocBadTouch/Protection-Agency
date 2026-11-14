@@ -12,6 +12,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="protection-agency", description="Your agent needs an agency. Screen projects and gate an explicitly selected client launch; never a safety guarantee.")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="subcommand", required=True)
+    adapters = commands.add_parser("agents", help="Show adapter/platform capabilities separately from native verification")
+    adapters.add_argument("--json", action="store_true")
     friendly = commands.add_parser("check", help="Check a project and show readable findings and next steps")
     friendly.add_argument("root", type=Path, nargs="?", default=Path("."))
     friendly.add_argument("--level", choices=["quick", "standard", "deep"], default="standard")
@@ -20,9 +22,11 @@ def main(argv=None) -> int:
     friendly.add_argument("--json", action="store_true", help="Return machine-readable output")
     demonstration = commands.add_parser("demo", help="Demonstrate trusted hook responses without executing example commands")
     demonstration.add_argument("--json", action="store_true")
+    demonstration.add_argument("--agent", choices=["codex", "claude"], default="claude")
     guided = commands.add_parser("setup", help="Guided Claude user-hook setup, preview, and local response test")
     guided.add_argument("root", type=Path, nargs="?", default=Path("."))
     guided.add_argument("--settings", type=Path)
+    guided.add_argument("--agent", choices=["codex", "claude"], help="Select an adapter; interactive setup asks if omitted")
     mode = guided.add_mutually_exclusive_group()
     mode.add_argument("--online", dest="online", action="store_true")
     mode.add_argument("--offline", dest="online", action="store_false")
@@ -30,6 +34,7 @@ def main(argv=None) -> int:
     guided.add_argument("--dry-run", action="store_true")
     opening = commands.add_parser("open", help="Check first, then open a trusted Claude executable; no sandbox provided")
     opening.add_argument("root", type=Path, nargs="?", default=Path("."))
+    opening.add_argument("--agent", choices=["codex", "claude"], help="Select which client to discover")
     opening.add_argument("--client", type=Path, help="Absolute trusted client; default finds claude outside the project on the sanitized PATH")
     opening.add_argument("--online", action="store_true")
     opening.add_argument("--review", action="store_true")
@@ -44,6 +49,7 @@ def main(argv=None) -> int:
     server.add_argument("--online", action="store_true")
     hook = commands.add_parser("hook", help="Read a Claude SessionStart or PreToolUse event on stdin")
     hook.add_argument("--online", action="store_true")
+    hook.add_argument("--agent", choices=["codex", "claude"], default="claude")
     check = commands.add_parser("check-command", help="Classify a command as text; never execute it")
     check.add_argument("command")
     dependency = commands.add_parser("check-dependency", help="Check a proposed release without installing or resolving it")
@@ -54,13 +60,15 @@ def main(argv=None) -> int:
     dependency.add_argument("--online", action="store_true")
     doctor = commands.add_parser("doctor", help="Run offline scanner diagnostics; does not certify live agent enforcement")
     doctor.add_argument("--root", type=Path)
+    doctor.add_argument("--agent", choices=["codex", "claude"], default="claude")
     doctor.add_argument("--settings", type=Path, help="Inspect Claude user settings outside the project")
     doctor.add_argument("--probe-hooks", action="store_true", help="Exercise only the reconstructed trusted guard hook; not the native client")
     doctor.add_argument("--human", action="store_true", help="Show a readable diagnostic summary")
     for action in ("install-hooks", "uninstall-hooks"):
         setup = commands.add_parser(action, help="Manage only Protection Agency's Claude user hooks with private backups")
         setup.add_argument("--project", type=Path, required=True)
-        setup.add_argument("--settings", type=Path, default=Path.home() / ".claude/settings.json")
+        setup.add_argument("--settings", type=Path)
+        setup.add_argument("--agent", choices=["codex", "claude"], default="claude")
         setup.add_argument("--dry-run", action="store_true")
         setup.add_argument("--human", action="store_true")
         if action == "install-hooks":
@@ -88,18 +96,30 @@ def main(argv=None) -> int:
                                        or args.probe_hooks and args.settings is None):
         parser.error("doctor configuration checks require --root and --settings; --probe-hooks also requires both")
     try:
+        if args.subcommand == "agents":
+            from .agents import capabilities
+            result = capabilities()
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print("Protection Agency adapters (native enforcement unverified)")
+                for agent in result["agents"]:
+                    print(agent["label"] + ": shell hook + shared read-only MCP; hook failures: " + agent["hook_error_behavior"])
+                print("Other MCP-compatible clients can use advisory tools; MCP alone does not intercept their execution.")
+                print("Filesystem backend: " + result["scan_and_mcp"])
+            return 0
         if args.subcommand == "setup":
             from .onboarding import setup as guided_setup
-            return guided_setup(args.root, settings=args.settings, online=args.online, dry_run=args.dry_run)
+            return guided_setup(args.root, settings=args.settings, online=args.online, dry_run=args.dry_run, agent=args.agent)
         if args.subcommand == "demo":
             from .onboarding import demo, demo_text
-            result = demo()
+            result = demo(agent=args.agent)
             print(json.dumps(result, indent=2) if args.json else demo_text(result))
             return 0 if result["status"] == "passed" else 1
         if args.subcommand == "open":
             from .onboarding import open_client
             return open_client(args.root, client=args.client, online=args.online, review=args.review,
-                               dry_run=args.dry_run, client_args=launch_command)
+                               dry_run=args.dry_run, client_args=launch_command, agent=args.agent)
         if args.subcommand == "check":
             from .presentation import scan_result
             report = Scanner(args.root, online=args.online).scan(args.level)
@@ -115,7 +135,7 @@ def main(argv=None) -> int:
             return serve(Scanner(args.root, online=args.online))
         if args.subcommand == "hook":
             from .hooks import run
-            return run(online=args.online)
+            return run(online=args.online, agent=args.agent)
         if args.subcommand == "check-dependency":
             from .preflight import check_dependency
             result = check_dependency(args.ecosystem, args.name, args.version,
@@ -124,7 +144,7 @@ def main(argv=None) -> int:
             return {"no_findings": 0, "block": 1, "review": 2}[result["decision"]]
         if args.subcommand == "doctor":
             from .doctor import diagnose
-            result = diagnose(args.root, settings=args.settings, probe_hooks=args.probe_hooks)
+            result = diagnose(args.root, settings=args.settings, probe_hooks=args.probe_hooks, agent=args.agent)
             if args.human:
                 from .presentation import doctor_result
                 print(doctor_result(result))
@@ -133,8 +153,10 @@ def main(argv=None) -> int:
             return 1 if result["status"] == "failed" else 0
         if args.subcommand in {"install-hooks", "uninstall-hooks"}:
             from .integration import configure
+            from .agents import default_settings
             result = configure("install" if args.subcommand == "install-hooks" else "uninstall",
-                               args.settings, args.project, dry_run=args.dry_run, online=getattr(args, "online", False))
+                               default_settings(args.agent, args.settings), args.project, dry_run=args.dry_run,
+                               online=getattr(args, "online", False), agent=args.agent)
             if args.human:
                 from .presentation import setup_result
                 print(setup_result(result))

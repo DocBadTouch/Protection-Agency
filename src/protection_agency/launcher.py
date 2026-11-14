@@ -17,6 +17,7 @@ from . import __version__
 from . import git_startup
 from .models import label
 from .scanner import Scanner
+from .filesystem import normalize_root
 
 STARTUP_ENV = {
     "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONWARNINGS",
@@ -30,17 +31,21 @@ STARTUP_ENV = {
 }
 ANCESTOR_CONFIGS = (
     ".claude/settings.json", ".claude/settings.local.json", ".mcp.json",
+    ".codex/hooks.json", ".codex/config.toml",
     ".cursor/mcp.json", ".cursor/hooks.json", ".gemini/settings.json", ".vscode/tasks.json",
 )
 MAX_PREFLIGHT_AGE = 300
 
 
 def clean_environment(root: Path, environ: dict[str, str]) -> tuple[dict[str, str], list[str], int]:
-    result = dict(environ)
-    for key in ("HOME", "XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):
+    result = {key.upper(): value for key, value in environ.items()} if os.name == "nt" else dict(environ)
+    for key in ("HOME", "XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):
         if not result.get(key):
             continue
         path = Path(result[key])
+        if os.name == "nt":
+            from .windows_files import local_path
+            local_path(path)
         if not path.is_absolute() or path.resolve().is_relative_to(root):
             raise ValueError("global configuration points inside the untrusted project or uses a relative path")
     removed = sorted((STARTUP_ENV & result.keys()) | {k for k in result if k.startswith("BASH_FUNC_")})
@@ -72,7 +77,7 @@ def clean_environment(root: Path, environ: dict[str, str]) -> tuple[dict[str, st
             path = Path(entry)
             if not path.is_absolute():
                 raise ValueError("relative PATH entry")
-            path = path.resolve(strict=True)
+            path = normalize_root(path) if os.name == "nt" else path.resolve(strict=True)
             if not path.is_dir() or path.is_relative_to(root):
                 raise ValueError("untrusted PATH entry")
         except (OSError, ValueError, RuntimeError):
@@ -138,7 +143,7 @@ def launch(root: Path, command: list[str], *, online=False, review=False, dry_ru
     try:
         if not sys.flags.isolated:
             raise ValueError("launch requires Python isolated mode")
-        root = Path(root).resolve(strict=True)
+        root = normalize_root(root)
         if not root.is_dir() or Path(__file__).resolve().is_relative_to(root):
             raise ValueError("scanner must be outside the inspected directory")
         if (not command or len(command) > 256 or not all(isinstance(a, str) and "\x00" not in a for a in command)
@@ -148,6 +153,8 @@ def launch(root: Path, command: list[str], *, online=False, review=False, dry_ru
         if not executable.is_absolute():
             raise ValueError("an absolute client executable is required")
         executable = executable.resolve(strict=True)
+        if os.name == "nt" and executable.suffix.lower() != ".exe":
+            raise ValueError("Windows startup requires a native .exe client; batch shims are refused")
         if executable.is_relative_to(root) or not executable.is_file() or not os.access(executable, os.X_OK):
             raise ValueError("client executable must be trusted and outside the inspected root")
         argv = (str(executable), *command[1:])

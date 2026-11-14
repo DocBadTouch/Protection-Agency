@@ -34,6 +34,7 @@ class ReviewTerminal:
         return (match[1] if self.accept else "decline") + "\n"
 
 
+@unittest.skipIf(os.name == "nt", "POSIX launch contract; native Windows parity is in test_windows")
 class LaunchTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="pa-launch-test-")

@@ -5,7 +5,7 @@ import tomllib
 from . import jsondata
 from .models import Finding
 
-CONFIG_DIRS = {".vscode", ".claude", ".cursor", ".gemini", ".github", ".agents"}
+CONFIG_DIRS = {".vscode", ".claude", ".codex", ".cursor", ".gemini", ".github", ".agents"}
 FORCED_NAMES = {".mcp.json", "mcp.json", "binding.gyp", "sitecustomize.py", "usercustomize.py"}
 
 
@@ -37,14 +37,28 @@ def inspect(path: str, text: str) -> tuple[list[Finding], list[str]]:
                     "Review backend requirements and local backend paths before building or installing source distributions.")
         except (ValueError, TypeError, AttributeError, RecursionError):
             gaps.append(f"Build configuration could not be inspected: {path}")
-    config = p.name in {".mcp.json", "mcp.json"} or (bool(set(p.parts) & CONFIG_DIRS)
+    codex_toml = ".codex" in p.parts and p.name == "config.toml"
+    config = codex_toml or p.name in {".mcp.json", "mcp.json"} or (bool(set(p.parts) & CONFIG_DIRS)
                and p.name in {"settings.json", "settings.local.json", "hooks.json", "tasks.json"})
     if not config:
         return findings, gaps
     try:
-        data = jsondata.loads(text)
+        data = tomllib.loads(text) if codex_toml else jsondata.loads(text)
         if not isinstance(data, dict):
             raise ValueError("configuration must be an object")
+        if codex_toml:
+            features = data.get("features", {})
+            if not isinstance(features, dict):
+                raise ValueError("invalid Codex feature controls")
+            for key in ("hooks", "codex_hooks"):
+                if key in features and not isinstance(features[key], bool):
+                    raise ValueError("invalid Codex hook control")
+            if "allow_managed_hooks_only" in data and not isinstance(data["allow_managed_hooks_only"], bool):
+                raise ValueError("invalid Codex managed hook control")
+            if features.get("hooks") is False or features.get("codex_hooks") is False or data.get("allow_managed_hooks_only"):
+                findings.append(Finding("PA409", "high", path, 1, "Codex configuration suppresses user hooks",
+                    "Inspect the effective Codex settings and native hook trust; do not rely on user hooks under these controls.",
+                    evidence="security_control_override", context="configuration"))
         if ".claude" in p.parts and p.name in {"settings.json", "settings.local.json"} and "disableAllHooks" in data:
             if not isinstance(data["disableAllHooks"], bool):
                 raise ValueError("invalid hook-disable setting")
@@ -77,7 +91,7 @@ def inspect(path: str, text: str) -> tuple[list[Finding], list[str]]:
                     pending.extend((v, depth + 1) for v in item)
                 elif not isinstance(item, (str, int, float, bool, type(None))):
                     raise ValueError("unsupported hook structure")
-        for key in ("mcpServers", "servers"):
+        for key in ("mcpServers", "servers", "mcp_servers"):
             if key not in data:
                 continue
             servers = data[key]

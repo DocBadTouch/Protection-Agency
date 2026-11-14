@@ -23,6 +23,7 @@ class Terminal(io.StringIO):
         return True
 
 
+@unittest.skipIf(os.name == "nt", "POSIX terminal/shell contract; native Windows parity is in test_windows")
 class OnboardingTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="pa-onboarding-")
@@ -41,6 +42,8 @@ class OnboardingTests(unittest.TestCase):
                                 output_stream=self.output, **kwargs)
 
     def cli(self, *args, cwd=None):
+        if args and args[0] == "setup" and "--agent" not in args:
+            args = (*args, "--agent", "claude")
         return subprocess.run([sys.executable, "-I", str(SOURCE / "guard.py"), *map(str, args)],
                               cwd=cwd or self.project, capture_output=True, text=True, timeout=15)
 
@@ -219,7 +222,7 @@ class OnboardingTests(unittest.TestCase):
         result = self.cli("doctor", "--root", self.project, "--settings", self.settings, "--probe-hooks", "--human")
         self.assertEqual(result.returncode, 0)
         self.assertIn("8/8 passed", result.stdout)
-        self.assertIn("Native Claude enforcement: not verified", result.stdout)
+        self.assertIn("Native client enforcement: not verified", result.stdout)
         result = self.cli("uninstall-hooks", "--project", self.project, "--settings", self.settings, "--human")
         self.assertEqual(result.returncode, 0)
         self.assertIn("hooks removed", result.stdout)
@@ -339,7 +342,7 @@ class OnboardingTests(unittest.TestCase):
         process = None
         try:
             process = subprocess.Popen([sys.executable, "-I", str(SOURCE / "guard.py"), "setup", str(self.project),
-                "--settings", str(self.settings), "--offline"], stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                "--settings", str(self.settings), "--offline", "--agent", "claude"], stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             observed = b""
             for _ in range(20000):
                 ready, _, _ = select.select([process.stdout], [], [], 5)

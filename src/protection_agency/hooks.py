@@ -15,7 +15,16 @@ def deny(reason: str) -> dict:
             "permissionDecision": "deny", "permissionDecisionReason": reason}}
 
 
-def handle(event: dict, *, online: bool = False) -> dict:
+def handle(event: dict, *, online: bool = False, agent="claude") -> dict:
+    from .agents import get_agent
+    get_agent(agent)
+    output = _handle(event, online=online)
+    if agent == "codex" and output.get("hookSpecificOutput", {}).get("permissionDecision") == "ask":
+        return deny("Protection Agency requires review of this execution. The Codex adapter cannot request native 'ask'; this command is denied. Inspect the standalone findings and keep sandboxing enabled.")
+    return output
+
+
+def _handle(event: dict, *, online: bool = False) -> dict:
     if not isinstance(event, dict):
         raise ValueError("hook input must be an object")
     kind = event.get("hook_event_name")
@@ -56,15 +65,18 @@ def handle(event: dict, *, online: bool = False) -> dict:
             "permissionDecisionReason": reason + "Review this command and run project code in a sandbox."}}
 
 
-def run(*, online: bool = False) -> int:
+def run(*, online: bool = False, agent="claude") -> int:
     try:
         raw = sys.stdin.buffer.read(MAX_INPUT + 1)
         if len(raw) > MAX_INPUT:
             raise ValueError("hook input exceeds budget")
-        output = handle(json.loads(raw), online=online)
+        output = handle(json.loads(raw), online=online, agent=agent)
         print(json.dumps(output, separators=(",", ":")))
         return 0
     except Exception:
+        if agent == "codex":
+            print(json.dumps(deny("Protection Agency could not complete its check; this tool call is denied."), separators=(",", ":")))
+            return 0
         # Do not echo target data or exception strings that may contain secrets.
         print("Protection Agency could not complete its hook check; execution blocked.", file=sys.stderr)
         return 2
