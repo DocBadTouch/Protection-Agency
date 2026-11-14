@@ -1,4 +1,4 @@
-"""User-invoked Claude hook setup and bounded diagnostics; no native client starts."""
+"""User-invoked agent hook setup and bounded diagnostics; no native client starts."""
 import copy
 import hashlib
 import json
@@ -122,8 +122,8 @@ def configure(operation: str, settings: Path, project: Path, *, online=False, dr
         return {**common, "status": "disabled", "changed": False,
                 "reason": "Settings explicitly disable hooks; setup will not change that choice"}
     if operation == "install" and _project_controls(project, agent=agent, settings=settings):
-        return {**common, "status": "disabled_by_project", "changed": False,
-                "reason": "Project settings contain disableAllHooks; inspect the control before installing hooks"}
+        return {**common, "status": "disabled_by_agent_settings" if agent == "codex" else "disabled_by_project", "changed": False,
+                "reason": "Selected project or user configuration suppresses these hooks; inspect the native agent settings before installing"}
     updated, removed = _strip(data, python, launcher, agent)
     if operation == "install":
         hooks = updated.setdefault("hooks", {})
@@ -238,7 +238,7 @@ def inspect_configuration(settings: Path, project: Path, *, probe=False, agent="
         if data.get("disableAllHooks") is True:
             return {**result, "status": "disabled"}
         if _project_controls(project, agent=agent, settings=settings):
-            return {**result, "status": "disabled_by_project"}
+            return {**result, "status": "disabled_by_agent_settings" if agent == "codex" else "disabled_by_project"}
         found = []
         legacy = False
         for event, groups in data.get("hooks", {}).items():

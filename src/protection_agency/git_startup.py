@@ -73,22 +73,22 @@ def inspect(root: Path) -> tuple[list[Finding], list[str], str]:
     except (OSError, UnicodeError, configparser.Error, ValueError):
         gaps.append("Git configuration could not be inspected; startup scope is incomplete")
     try:
-            with directory_entries(root, ".git/hooks") as entries:
-                for index, entry in enumerate(entries):
-                    if index >= 128:
-                        gaps.append("Git hook inventory exceeded its budget")
-                        break
-                    if entry.name.endswith(".sample"):
-                        continue
-                    path = ".git/hooks/" + entry.name
-                    try:
-                        mode = entry.stat(follow_symlinks=False).st_mode
-                        raw = read_project_file(root, path, 64 * 1024)
-                        records.append((path, hashlib.sha256(raw).hexdigest(), mode))
-                        if mode & 0o111 or os.name == "nt":
-                            add("PA501", path, "Executable Git hook present")
-                    except OSError:
-                        gaps.append("A Git hook file could not be inspected; startup scope is incomplete")
+        with directory_entries(root, ".git/hooks") as entries:
+            for index, entry in enumerate(entries):
+                if index >= 128:
+                    gaps.append("Git hook inventory exceeded its budget")
+                    break
+                if entry.name.endswith(".sample"):
+                    continue
+                path = ".git/hooks/" + entry.name
+                try:
+                    mode = entry.stat(follow_symlinks=False).st_mode
+                    raw = read_project_file(root, path, 64 * 1024)
+                    records.append((path, hashlib.sha256(raw).hexdigest(), mode))
+                    if mode & 0o111 or os.name == "nt":
+                        add("PA501", path, "Executable Git hook present")
+                except OSError:
+                    gaps.append("A Git hook file could not be inspected; startup scope is incomplete")
     except FileNotFoundError:
         pass
     except OSError:

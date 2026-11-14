@@ -23,7 +23,7 @@ def main(argv=None) -> int:
     demonstration = commands.add_parser("demo", help="Demonstrate trusted hook responses without executing example commands")
     demonstration.add_argument("--json", action="store_true")
     demonstration.add_argument("--agent", choices=["codex", "claude"], default="claude")
-    guided = commands.add_parser("setup", help="Guided Claude user-hook setup, preview, and local response test")
+    guided = commands.add_parser("setup", help="Guided selected-agent hook setup, preview, and local response test")
     guided.add_argument("root", type=Path, nargs="?", default=Path("."))
     guided.add_argument("--settings", type=Path)
     guided.add_argument("--agent", choices=["codex", "claude"], help="Select an adapter; interactive setup asks if omitted")
@@ -32,10 +32,10 @@ def main(argv=None) -> int:
     mode.add_argument("--offline", dest="online", action="store_false")
     guided.set_defaults(online=None)
     guided.add_argument("--dry-run", action="store_true")
-    opening = commands.add_parser("open", help="Check first, then open a trusted Claude executable; no sandbox provided")
+    opening = commands.add_parser("open", help="Check first, then open a trusted selected client; no sandbox provided")
     opening.add_argument("root", type=Path, nargs="?", default=Path("."))
     opening.add_argument("--agent", choices=["codex", "claude"], help="Select which client to discover")
-    opening.add_argument("--client", type=Path, help="Absolute trusted client; default finds claude outside the project on the sanitized PATH")
+    opening.add_argument("--client", type=Path, help="Absolute trusted client; otherwise discover the selected agent outside the project on sanitized PATH")
     opening.add_argument("--online", action="store_true")
     opening.add_argument("--review", action="store_true")
     opening.add_argument("--dry-run", action="store_true")
@@ -47,7 +47,7 @@ def main(argv=None) -> int:
     server = commands.add_parser("serve", help="Start a workspace-scoped MCP stdio server")
     server.add_argument("--root", type=Path, required=True)
     server.add_argument("--online", action="store_true")
-    hook = commands.add_parser("hook", help="Read a Claude SessionStart or PreToolUse event on stdin")
+    hook = commands.add_parser("hook", help="Read a selected-agent SessionStart or PreToolUse event on stdin")
     hook.add_argument("--online", action="store_true")
     hook.add_argument("--agent", choices=["codex", "claude"], default="claude")
     check = commands.add_parser("check-command", help="Classify a command as text; never execute it")
@@ -61,11 +61,11 @@ def main(argv=None) -> int:
     doctor = commands.add_parser("doctor", help="Run offline scanner diagnostics; does not certify live agent enforcement")
     doctor.add_argument("--root", type=Path)
     doctor.add_argument("--agent", choices=["codex", "claude"], default="claude")
-    doctor.add_argument("--settings", type=Path, help="Inspect Claude user settings outside the project")
+    doctor.add_argument("--settings", type=Path, help="Inspect selected-agent user settings outside the project")
     doctor.add_argument("--probe-hooks", action="store_true", help="Exercise only the reconstructed trusted guard hook; not the native client")
     doctor.add_argument("--human", action="store_true", help="Show a readable diagnostic summary")
     for action in ("install-hooks", "uninstall-hooks"):
-        setup = commands.add_parser(action, help="Manage only Protection Agency's Claude user hooks with private backups")
+        setup = commands.add_parser(action, help="Manage only Protection Agency's selected-agent user hooks with private backups")
         setup.add_argument("--project", type=Path, required=True)
         setup.add_argument("--settings", type=Path)
         setup.add_argument("--agent", choices=["codex", "claude"], default="claude")
@@ -162,7 +162,7 @@ def main(argv=None) -> int:
                 print(setup_result(result))
             else:
                 print(json.dumps(result, indent=2))
-            return 2 if result["status"] in {"disabled", "disabled_by_project", "conflict", "applied_with_warning"} else 0
+            return 2 if result["status"] in {"disabled", "disabled_by_project", "disabled_by_agent_settings", "conflict", "applied_with_warning"} else 0
         if args.subcommand == "launch":
             from .launcher import launch
             return launch(args.root, launch_command, online=args.online, review=args.review,

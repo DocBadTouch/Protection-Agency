@@ -130,7 +130,7 @@ class AgentsTests(unittest.TestCase):
         config = self.project / ".codex/config.toml"
         config.parent.mkdir()
         config.write_text('[features]\nhooks = false\n')
-        self.assertEqual(configure("install", self.settings, self.project, agent="codex")["status"], "disabled_by_project")
+        self.assertEqual(configure("install", self.settings, self.project, agent="codex")["status"], "disabled_by_agent_settings")
         findings, gaps = inspect(".codex/config.toml", config.read_text())
         self.assertFalse(gaps)
         self.assertIn("PA409", {f.rule for f in findings})
@@ -141,7 +141,7 @@ class AgentsTests(unittest.TestCase):
         config = self.settings.parent / "config.toml"
         for original in ('[features]\ncodex_hooks = false\n', 'allow_managed_hooks_only = true\n'):
             config.write_text(original)
-            self.assertEqual(configure("install", self.settings, self.project, agent="codex")["status"], "disabled_by_project")
+            self.assertEqual(configure("install", self.settings, self.project, agent="codex")["status"], "disabled_by_agent_settings")
             self.assertEqual(config.read_text(), original)
 
     def test_invalid_codex_controls_are_not_silently_ignored(self):
@@ -182,6 +182,10 @@ class AgentsTests(unittest.TestCase):
         output = io.StringIO()
         self.assertEqual(open_client(self.project, agent=None, output_stream=output), 2)
         self.assertIn("--agent codex", output.getvalue())
+        if os.name != "nt":
+            with patch.dict(os.environ, {"SHELL": str(self.project / "untrusted-shell")}):
+                with self.assertRaises(ValueError):
+                    open_client(self.project, agent="codex", output_stream=io.StringIO())
 
     @unittest.skipIf(os.name == "nt", "Windows native discovery is tested separately")
     def test_codex_discovery_uses_selected_name_and_sanitized_path(self):

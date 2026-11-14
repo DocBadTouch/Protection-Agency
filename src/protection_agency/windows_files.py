@@ -81,6 +81,7 @@ mkdir = bind(K, "CreateDirectoryW", W.BOOL, [W.LPCWSTR, C.c_void_p])
 move = bind(K, "MoveFileExW", W.BOOL, [W.LPCWSTR, W.LPCWSTR, W.DWORD])
 drive_type = bind(K, "GetDriveTypeW", W.UINT, [W.LPCWSTR])
 volume_info = bind(K, "GetVolumeInformationW", W.BOOL, [W.LPCWSTR, W.LPWSTR, W.DWORD, C.c_void_p, C.c_void_p, C.c_void_p, W.LPWSTR, W.DWORD])
+get_system_directory = bind(K, "GetSystemDirectoryW", W.UINT, [W.LPWSTR, W.UINT])
 local_free = bind(K, "LocalFree", C.c_void_p, [C.c_void_p])
 get_process = bind(K, "GetCurrentProcess", W.HANDLE, [])
 open_token = bind(A, "OpenProcessToken", W.BOOL, [W.HANDLE, W.DWORD, C.POINTER(W.HANDLE)])
@@ -104,6 +105,14 @@ FLAGS = 0x02000000 | 0x00200000  # BACKUP_SEMANTICS | OPEN_REPARSE_POINT
 def checked(ok):
     if not ok:
         raise C.WinError(C.get_last_error())
+
+
+def system_directory():
+    buffer = C.create_unicode_buffer(32768)
+    count = get_system_directory(buffer, len(buffer))
+    if not count or count >= len(buffer):
+        raise OSError("trusted Windows system directory could not be established")
+    return Path(buffer.value)
 
 
 def extended(path):

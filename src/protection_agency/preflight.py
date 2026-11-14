@@ -3,7 +3,6 @@ import re
 import shlex
 from dataclasses import replace
 from datetime import datetime, timezone
-from pathlib import PurePosixPath
 
 from .dependencies import NPM_VERSION, PY_VERSION, NPM_NAME, PY_NAME, public_registry
 from .intelligence import POLINRIDER_NPM, SOURCE

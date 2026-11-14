@@ -20,7 +20,7 @@ from .scanner import Scanner
 from .filesystem import normalize_root
 
 STARTUP_ENV = {
-    "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONWARNINGS",
+    "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONWARNINGS", "PSModulePath", "PSMODULEPATH",
     "BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "RUBYOPT", "RUBYLIB",
     "PERL5OPT", "PERL5LIB", "LUA_INIT", "LUA_INIT_5_4", "LUA_PATH", "LUA_CPATH",
     "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
@@ -39,6 +39,15 @@ MAX_PREFLIGHT_AGE = 300
 
 def clean_environment(root: Path, environ: dict[str, str]) -> tuple[dict[str, str], list[str], int]:
     result = {key.upper(): value for key, value in environ.items()} if os.name == "nt" else dict(environ)
+    if os.name == "nt":
+        from .windows_files import system_directory
+        system = system_directory()
+        result.update(COMSPEC=str(system / "cmd.exe"), SYSTEMROOT=str(system.parent), WINDIR=str(system.parent),
+                      NODEFAULTCURRENTDIRECTORYINEXEPATH="1")
+    elif result.get("SHELL"):
+        shell = Path(result["SHELL"])
+        if not shell.is_absolute() or shell.resolve().is_relative_to(root) or not shell.is_file() or not os.access(shell, os.X_OK):
+            raise ValueError("shell must be a trusted external executable")
     for key in ("HOME", "XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):
         if not result.get(key):
             continue

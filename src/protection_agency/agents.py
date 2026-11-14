@@ -51,7 +51,8 @@ def codex_command(python, launcher, online):
         return "exec " + shlex.join(argv)
     # Codex invokes the configured user shell. A fixed system relay and encoded
     # literal argv avoid nested cmd/PowerShell interpolation of trusted paths.
-    relay = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    from .windows_files import system_directory
+    relay = system_directory() / "WindowsPowerShell/v1.0/powershell.exe"
     if not re.fullmatch(r"[A-Za-z]:[A-Za-z0-9_./\\-]+", str(relay)) or not relay.is_file():
         raise ValueError("a trusted unambiguous system PowerShell relay is required")
     script = "& " + " ".join("'" + arg.replace("'", "''") + "'" for arg in argv) + "; exit $LASTEXITCODE"

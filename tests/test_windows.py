@@ -149,6 +149,52 @@ class WindowsTests(unittest.TestCase):
             snapshot(self.settings)
         self.assertEqual(self.settings.read_text(), '{}')
 
+    def test_foreign_write_on_configuration_parent_is_refused(self):
+        configure("install", self.settings, self.project)
+        original = self.settings.read_bytes()
+        tool = Path(os.environ["SystemRoot"]) / "System32/icacls.exe"
+        result = subprocess.run([str(tool), str(self.settings.parent), "/grant", "*S-1-1-0:(W)"], capture_output=True)
+        self.assertEqual(result.returncode, 0)
+        with self.assertRaises(ValueError):
+            snapshot(self.settings)
+        self.assertEqual(self.settings.read_bytes(), original)
+
+    def test_native_replacement_failure_preserves_original_and_removes_staging(self):
+        configure("install", self.settings, self.project)
+        original = self.settings.read_bytes()
+        with patch("protection_agency.windows_files.rename_at", side_effect=OSError("inert replace failure")):
+            with self.assertRaises(OSError):
+                configure("install", self.settings, self.project, online=True)
+        self.assertEqual(self.settings.read_bytes(), original)
+        self.assertEqual(list(self.settings.parent.glob("*.tmp")), [])
+
+    def test_native_post_commit_sync_failure_reports_applied_change(self):
+        from protection_agency import windows_files as win
+        flush = win.flush
+        calls = []
+        def fail_after_rename(handle):
+            calls.append(handle)
+            return False if len(calls) == 2 else flush(handle)
+        with patch("protection_agency.windows_files.flush", side_effect=fail_after_rename):
+            result = configure("install", self.settings, self.project)
+        self.assertEqual(result["status"], "applied_with_warning")
+        self.assertTrue(result["changed"])
+        self.assertIn("hooks", json.loads(self.settings.read_text()))
+
+    def test_native_concurrent_edit_is_preserved_without_lost_update(self):
+        from protection_agency import windows_files as win
+        configure("install", self.settings, self.project)
+        write_new = win.write_new
+        def concurrent_write(parent, name, raw):
+            write_new(parent, name, raw)
+            if name.endswith('.tmp'):
+                self.settings.write_text('{"later":"user edit"}')
+        with patch("protection_agency.windows_files.write_new", side_effect=concurrent_write):
+            result = configure("install", self.settings, self.project, online=True)
+        self.assertEqual(result["status"], "conflict")
+        self.assertEqual(json.loads(self.settings.read_text()), {"later":"user edit"})
+        self.assertEqual(list(self.settings.parent.glob("*.tmp")), [])
+
     def test_snapshot_drift_refuses_edit(self):
         configure("install", self.settings, self.project)
         expected = snapshot(self.settings)
@@ -225,6 +271,19 @@ class WindowsTests(unittest.TestCase):
         script.write_text('@echo should-not-run')
         status = open_client(self.project, client=script, online=True, output_stream=io.StringIO())
         self.assertEqual(status, 3)
+
+    def test_system_shell_and_relay_ignore_project_environment_overrides(self):
+        from protection_agency.windows_files import system_directory
+        from protection_agency.agents import codex_command
+        from protection_agency.launcher import clean_environment
+        system = system_directory()
+        with patch.dict(os.environ, {"SystemRoot": str(self.project), "COMSPEC": str(self.project / "cmd.exe"),
+                                     "PSModulePath": str(self.project)}):
+            command = codex_command(Path(sys.executable), SOURCE / "guard.py", False)
+            environment, _, _ = clean_environment(self.project, os.environ)
+        self.assertTrue(command.startswith(str(system / "WindowsPowerShell/v1.0/powershell.exe")))
+        self.assertEqual(environment["COMSPEC"], str(system / "cmd.exe"))
+        self.assertNotIn("PSMODULEPATH", environment)
 
     def test_startup_dry_run_and_high_finding_do_not_start_client(self):
         marker = self.base / "marker"

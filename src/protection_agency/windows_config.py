@@ -56,8 +56,11 @@ def replace(path: Path, expected: Snapshot, raw: bytes):
                 return {"status": "conflict", "changed": False, "backup": backup, "reason": "Settings changed before replacement"}
             flushed = win.rename_at(parent, temporary, path.name)
             temporary = None
-            return {"status": "applied" if flushed else "applied_with_warning", "changed": True, "backup": backup,
-                    "directory_durability": "not_attested", "access_control": "private_windows_dacl"}
+            result = {"status": "applied" if flushed else "applied_with_warning", "changed": True, "backup": backup,
+                      "directory_durability": "not_attested", "access_control": "private_windows_dacl"}
+            if not flushed:
+                result["reason"] = "Settings replaced; final file durability sync failed. Verify the resulting file"
+            return result
         finally:
             if temporary is not None:
                 try:

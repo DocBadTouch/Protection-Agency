@@ -28,8 +28,11 @@ def error_hint(error):
         "duplicate JSON configuration key": "Settings contain duplicate JSON keys. Resolve that ambiguity while preserving your existing settings, then retry.",
         "JSON configuration exceeds nesting budget": "Settings exceed the supported nesting budget. Inspect them before retrying.",
         "global configuration points inside the untrusted project or uses a relative path": "A global configuration environment path points into the project or is relative. Use your trusted external user profile.",
+        "configuration grants write access to another principal": "The Windows settings ACL allows another principal to write. Inspect its access controls before retrying; do not broaden access to force setup.",
+        "Windows secure access currently supports NTFS only": "Native Windows checks currently require local NTFS. Network shares and other filesystems have not been enabled.",
+        "Windows secure access requires a local fixed drive": "Select a project on a local fixed NTFS drive. Network and removable drives are outside this backend's supported scope.",
     }
-    if isinstance(error, ValueError) and str(error) in hints:
+    if isinstance(error, (ValueError, OSError)) and str(error) in hints:
         return hints[str(error)]
     if isinstance(error, json.JSONDecodeError):
         return "Settings JSON could not be parsed. Inspect it without discarding existing settings; original bytes have not been replaced by a parse failure."

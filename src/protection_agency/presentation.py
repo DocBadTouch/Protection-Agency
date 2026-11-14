@@ -59,8 +59,9 @@ def setup_result(result):
         "would_uninstall": "Preview: remove Protection Agency hook handlers only.",
         "disabled": "Setup stopped: user settings explicitly disable hooks.",
         "disabled_by_project": "Setup stopped: project settings explicitly disable hooks.",
+        "disabled_by_agent_settings": "Setup stopped: selected project or user settings suppress this agent's hooks.",
         "conflict": "Setup stopped: settings changed or another setup holds the lock. Inspect current settings and retry.",
-        "applied_with_warning": "Settings were changed, but their directory could not be synced. Inspect the resulting file.",
+        "applied_with_warning": "Settings were changed, but a durability sync failed. Inspect the resulting file.",
     }
     lines = [messages.get(result["status"], "Setup did not establish a completed result.")]
     if result.get("backup"):

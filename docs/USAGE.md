@@ -1,6 +1,6 @@
 # Detailed usage
 
-This is the expanded reference for source version `0.2.0a4`. New users should follow [Getting started](GETTING-STARTED.md). The [CLI reference](CLI.md) lists every command/status; this guide explains scanning, startup checks, integrations, updates, and coverage in more detail.
+This is the expanded reference for source `0.3.0a1`. Start with [Getting started](GETTING-STARTED.md) and [agent/platform coverage](AGENTS-AND-PLATFORMS.md); the [CLI reference](CLI.md) lists commands/statuses. Scanning/MCP are shared, Codex/Claude hook contracts differ, and experimental native Windows is local NTFS only.
 
 ## What works today
 
@@ -12,7 +12,7 @@ This is the expanded reference for source version `0.2.0a4`. New users should fo
 - Optionally query [OSV](https://osv.dev/) for current version-specific advisories, including `MAL-*` malicious-package records. Generic advisories request review; they are not automatically labeled critical.
 - Scan without installing dependencies, running scripts, importing project modules, invoking Git, or loading project plugins.
 - Return compact summaries; retrieve details only when needed. Cache static findings by file-content hash in the MCP process.
-- Provide Claude `SessionStart` context and a conservative `PreToolUse` Bash gate.
+- Provide Codex/Claude `SessionStart` context and distinct adapters for the shared conservative shell policy.
 - Install/remove those user hooks on request, preserve unrelated settings, and check their configuration with `doctor`.
 - Inventory selected project hooks, MCP launch configurations, editor autorun tasks, Python `.pth`/startup modules, and native/Python build configuration without starting any of them. Common JSON comments and trailing commas are supported in recognized startup settings.
 - Keep signatures in documentation visible as low-priority review findings. Agent instructions and executable/configuration files retain their normal priority.
@@ -72,7 +72,7 @@ The command adapter recognizes simple npm/pnpm/yarn/bun install/add commands, np
 
 ## Verify scanner diagnostics
 
-`doctor` runs six offline checks of the runtime, secure file-reading support, known malicious install classification, documentation context, startup configuration, and missing lock entries. It also warns about a scanner installed inside the target root or Python startup without isolation. Add `--root /path/to/project --settings /absolute/user/settings.json` to inspect installed Claude hooks. Add `--probe-hooks` to exercise only the trusted guard executable with inert hook events. These checks make no advisory requests, even for an online hook configuration. Its exit code is `0` when requested checks pass and `1` when a check fails; invalid roots produce the ordinary check-error exit code `3`.
+`doctor` runs six offline checks of the runtime, secure file-reading support, known malicious install classification, documentation context, startup configuration, and missing lock entries. It also warns about a scanner installed inside the target root or Python startup without isolation. Add `--agent codex --root /path/to/project --settings /absolute/codex-profile/hooks.json` to inspect selected Codex hooks, or select `--agent claude` and its settings file for Claude. Configuration inspection requires both root and an explicit settings path. Add `--probe-hooks` to exercise only the trusted guard executable with inert hook events. These checks make no advisory requests, even for an online hook configuration. Its exit code is `0` when requested checks pass and `1` when a check fails; invalid roots produce the ordinary check-error exit code `3`.
 
 **Doctor does not certify that a live client has installed or enforced the hook.** It reports `live_client_enforcement: not_verified`. Verify the actual client, hook order, failure behavior, and sandbox separately before relying on them. The [CLI reference](CLI.md#doctor) explains configuration/probe statuses and troubleshooting.
 
@@ -100,7 +100,7 @@ The child environment removes known interpreter/shell/dynamic-loader injection v
 
 Before any client starts, guard exits are `1` for high-priority findings, `2` for review/incomplete/changed/expired checks, `3` for check/start errors, and `130` for interruption. Once a client runs, its exit status is returned, so those codes can overlap client exit codes; the preflight's `execution` field distinguishes the phases.
 
-**The running client is not isolated by this launcher.** Use an appropriate OS/client sandbox, minimal credentials, and runtime permissions. This gate cannot undo IDE startup or code that already ran. Tests use an inert marker-writing client and a real pseudo-terminal; a live Claude startup/session integration is still unverified. The launch command is deliberately not exposed over MCP.
+**The running client is not isolated by this launcher.** Use an appropriate OS/client sandbox, minimal credentials, and runtime permissions. This gate cannot undo IDE startup or code that already ran. Tests use inert marker-writing clients and POSIX pseudo-terminals; live Codex/Claude startup/session integration is still unverified. The launch command is deliberately not exposed over MCP.
 
 ## MCP setup
 
@@ -130,7 +130,7 @@ The last eight reports remain in process memory. Restarting the server discards 
 
 ## Claude Code hooks and the portable skill
 
-For the recommended guided path, use [Getting started](GETTING-STARTED.md). The explicit commands below remain available for automation/manual configuration and default to the home user profile unless an absolute `--settings` path is supplied. Guided `setup` also honors `CLAUDE_CONFIG_DIR`; full client precedence still requires native review. `doctor`, `install-hooks`, and `uninstall-hooks` accept `--human` for readable summaries; their default JSON interfaces remain available.
+This section retains the Claude example for compatibility. Select `--agent codex` for Codex commands and read [its distinct contract](AGENTS-AND-PLATFORMS.md#codex-adapter-contract). The shared MCP server can be configured in other compatible agents; [Codex TOML](../examples/codex-mcp.toml) and [generic JSON](../examples/mcp.json) examples are supplied. Guided setup asks for an agent when omitted. Explicit hook commands retain a Claude default; all support `--human` alongside their JSON output.
 
 From a trusted source checkout outside the target project, preview and then install the hooks:
 
@@ -140,9 +140,9 @@ python3 -I /trusted/protection-agency/guard.py install-hooks --project /path/to/
 python3 -I /trusted/protection-agency/guard.py doctor --root /path/to/project --settings "$HOME/.claude/settings.json" --probe-hooks
 ```
 
-The default destination for explicit `install-hooks`/`uninstall-hooks` is `~/.claude/settings.json`; use an absolute `--settings` path on either command for a custom profile. Match it to the profile your client actually loads: these explicit commands do not discover `CLAUDE_CONFIG_DIR` or CLI overrides. Guided `setup` honors the environment directory as described in [Getting started](GETTING-STARTED.md). The explicit `--project` establishes the untrusted root and checks its root Claude hook-disable controls; installation does not scan or approve the rest of that project. Omit `--online` to install offline hooks. Reinstalling with different online options replaces only this tool's hooks. Restart Claude after changes and inspect `/hooks` to confirm the origin, events, and commands. The installer does not start Claude, change native permissions, or configure MCP/skills.
+Selected-agent defaults honor `CLAUDE_CONFIG_DIR`/`CODEX_HOME` or their home profile, with absolute `--settings` taking precedence. The native client must load that profile. `--project` establishes the trust boundary and selected root controls; installation does not approve or scan the whole project. Online mode is explicit, and reinstalling replaces only owned handlers. Restart the selected client and inspect/trust `/hooks`; the installer does not start a client, grant native permissions, or configure MCP/skills.
 
-Existing JSON-with-comments is parsed as data and normalized to formatted JSON when an edit is needed. Other settings and hooks are preserved semantically. Before replacement, the original bytes are saved beside the file as `settings.json.protection-agency.<random>.bak`, mode `0600`. Backups may contain your existing secrets: retain or delete them locally as appropriate. No settings contents are printed. The installer requires user-owned configuration files/directories without group/world write access, refuses symlink paths and hard-linked files, limits settings to 1 MiB and JSON nesting to 64 levels, rejects duplicate keys, and detects conflicting edits. An advisory lock coordinates setup processes; another editor can still race the final check and rename. Avoid editing settings concurrently.
+Existing JSON-with-comments is parsed as data and normalized to formatted JSON when an edit is needed. Other settings and hooks are preserved semantically. Before replacement, original bytes are saved beside the selected file as `<filename>.protection-agency.<random>.bak`, mode `0600` on POSIX or a protected private DACL on Windows. Backups may contain your existing secrets: retain or delete them locally as appropriate. No settings contents are printed. POSIX configuration must be user-owned without group/world write access; Windows validates owners and DACLs as described in [platform scope](AGENTS-AND-PLATFORMS.md#platform-scope). Both backends refuse symlink/reparse paths and hard-linked settings, limit settings to 1 MiB and JSON nesting to 64 levels, reject duplicate keys, and detect conflicting edits. A cooperative lock coordinates setup processes; another editor can still race the final check and rename. Windows directory durability is not attested. Avoid editing settings concurrently.
 
 ```bash
 python3 -I /trusted/protection-agency/guard.py uninstall-hooks --project /path/to/project --dry-run
@@ -170,7 +170,7 @@ The [portable skill](../skills/protection-agency/SKILL.md) guides agents through
 
 OSV maintains its advisory database independently. This tool requests current results each time, subject to upstream coverage and publication delay. The bundled PolinRider snapshot was reviewed on **2026-11-10** and does not refresh itself. Changing the scanner or its rules currently means reviewing and upgrading to a new repository revision/release. There is no background updater, hosted backend, telemetry, or automatic installation.
 
-For source upgrades, review the desired revision and update the trusted checkout deliberately. Stop running MCP processes before replacing their source, then restart them. Re-run `doctor`; after a checkout/interpreter relocation or hook-profile change, preview and re-run `install-hooks` with the intended online mode and settings path, then repeat configuration/protocol checks and restart Claude. Absolute hook/MCP paths do not migrate themselves. Marked hooks can be replaced by the current installer; unmarked legacy hooks pointing to an old location need manual review. Keep existing settings/backups private throughout the upgrade.
+For source upgrades, review the revision and update deliberately. Stop MCP processes before replacing source, then restart them. Re-run doctor; after checkout/interpreter/profile changes, preview and reinstall with the intended `--agent`, mode, and settings path. Repeat local probes and restart the selected native client, including trust review. Absolute paths do not migrate. Current installers can replace marked handlers; old unmarked paths need manual review. Keep backups private.
 
 The next planned update layer is a **data-only, authenticated rule feed** with release provenance, schema validation, freshness/rollback checks, and last-known-good behavior. It is a design in [the roadmap](ROADMAP.md), not implemented functionality. A security tool's update channel must not become a new arbitrary-code execution path.
 

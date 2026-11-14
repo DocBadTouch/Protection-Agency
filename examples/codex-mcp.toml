@@ -1,0 +1,6 @@
+# Merge into a trusted user Codex config.toml. Replace absolute paths and root.
+# On Windows, TOML literal strings can hold C:\paths; choose trusted python.exe.
+# Remove --online to keep eligible dependency identities offline.
+[mcp_servers.protection-agency]
+command = "/absolute/path/to/python3"
+args = ["-I", "/trusted/protection-agency/guard.py", "serve", "--root", "/absolute/path/to/project", "--online"]

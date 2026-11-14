@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0a1 — development prerelease
+
+- Add a shared agent registry and `agents` capability report, with explicit/interactive Codex or Claude selection for setup/opening. Keep CLI scanning, dependency checks, four read-only MCP tools, the startup gate, and the portable skill shared. Honor agent-specific profile directories; retain legacy Claude defaults for existing explicit commands.
+- Add the experimental Codex hook adapter and MCP TOML example. Translate review-needed commands to explicit denials because Codex does not support hook `ask`; local adapter errors also emit denials. Disclose that native hook startup/timeouts can continue and ordinary builds/tests may be blocked. Require native hook trust review without bypassing it. Read recognized project/user TOML hook-suppression controls without editing them.
+- Add experimental native Windows support on local fixed NTFS: handle-relative reads/enumeration/replacement, reparse/path-alias refusal, validated owners/DACLs, private backups/staging, native locks, and snapshot conflict checks. Report post-replacement flush warnings and explicitly leave directory durability unattested. No ordinary-write fallback, runtime dependency, or model call added.
+- Print a PowerShell shortcut on Windows, require native external `.exe` clients, and refuse batch shims. Use a fixed system PowerShell relay with encoded literal trusted arguments for Codex hooks. Sanitize inherited shell/module-path variables and reject project-contained POSIX shells.
+- Add 47 agent/platform test methods, including native junction/ACL/lock/failure cases, shell transport quoting, and marker-backed client launches. Expand CI to nine Linux/macOS/Windows × Python 3.11–3.13 jobs. Identify platform-specific skips separately; real Codex/Claude session enforcement remains unverified.
+- Update onboarding, CLI/status references, architecture, threat model, skill, contributor/security guidance, and validation evidence. Publish an agent/platform coverage matrix that separates implementation from native-client verification.
+
 ## 0.2.0a4 — development prerelease
 
 - Add the recommended first-time path: inert `demo`, guided Claude `setup`, readable project `check`, and guarded `open`. Keep existing JSON CLI/MCP/hook interfaces; add `check --json` and optional `--human` diagnostic/setup output.
