@@ -257,7 +257,7 @@ def owner_and_acl(handle):
 
 
 @contextmanager
-def pin_directory(path, *, create=False, secure=False):
+def pin_directory(path, *, create=False, secure=False, writable=False):
     path = local_path(path)
     handles = []
     current = Path(path.anchor)
@@ -265,18 +265,19 @@ def pin_directory(path, *, create=False, secure=False):
         for part in (None, *path.parts[1:]):
             if part is not None:
                 current /= part
+            share = 3 if writable and current == path else 1
             try:
-                handle = (open_handle(current, 0x120081) if part is None else
-                          open_relative(Directory(current.parent, handles[-1]), part, 0x120081))
+                handle = (open_handle(current, 0x120081, share=share) if part is None else
+                          open_relative(Directory(current.parent, handles[-1]), part, 0x120081, share=share))
             except FileNotFoundError:
                 if not create or part is None:
                     raise
                 with private_attributes() as attributes:
                     try:
                         handle = open_relative(Directory(current.parent, handles[-1]), part, 0x120081,
-                                               create=True, directory=True, attributes=attributes)
+                                               create=True, directory=True, attributes=attributes, share=share)
                     except FileExistsError:
-                        handle = open_relative(Directory(current.parent, handles[-1]), part, 0x120081)
+                        handle = open_relative(Directory(current.parent, handles[-1]), part, 0x120081, share=share)
             handles.append(handle)
             info(handle, directory=True)
         if secure:

@@ -29,7 +29,7 @@ def replace(path: Path, expected: Snapshot, raw: bytes):
         raise ValueError("new configuration exceeds the read budget")
     path = win.local_path(path)
     backup = temporary = None
-    with win.pin_directory(path.parent, create=True, secure=True) as parent:
+    with win.pin_directory(path.parent, create=True, secure=True, writable=True) as parent:
         with win.private_attributes() as attributes:
             lock = win.open_relative(parent, "." + path.name + ".protection-agency.lock", 0xC0000000,
                                      share=3, open_if=True, attributes=attributes)
