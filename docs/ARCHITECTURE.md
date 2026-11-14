@@ -3,7 +3,7 @@
 ```mermaid
 flowchart LR
   A[CLI or MCP client] --> B[Fixed workspace root]
-  H[Claude Bash hook] --> P[Command policy]
+  H[Codex or Claude shell adapter] --> P[Shared command policy]
   P --> T[Proposed exact release checks]
   T --> O
   P --> B
@@ -19,7 +19,7 @@ flowchart LR
   C --> E[Details on request]
 ```
 
-The scanner is deterministic Python. Target content is data: it never becomes an import, a subprocess, a shell command, a scanner plugin, or executable configuration. `guard.py` is a trusted launcher. Running it with `-I` avoids target-directory imports during Python startup. POSIX file-descriptor traversal refuses symlinks for every component of a file read.
+The scanner is deterministic Python. Target content remains data. `guard.py` is trusted source; Python `-I` avoids target-directory imports. POSIX descriptors refuse symlink components. Native Windows uses the separate local-NTFS backend described in [agent/platform coverage](AGENTS-AND-PLATFORMS.md). Both backends supply bounded reads and handle-based enumeration to the shared scanner/MCP engine.
 
 Inventories and static signals are separate. A lock entry can establish a dependency version even when the source is absent. A source pattern can identify suspicious behavior without proving malicious intent. The report records these as distinct evidence types. OSV `MAL-*` records and exact bundled malicious releases are critical; other OSV advisories request review because the batch API does not provide severity or reachability.
 
@@ -31,7 +31,7 @@ MCP returns structured scan summaries, command/dependency verdicts, and requeste
 
 The MCP transport implements initialize, ping, tools/list, tools/call, and notifications over newline-delimited JSON-RPC. It exposes no HTTP listener, filesystem write tool, shell tool, external scanner adapter, remediation tool, or arbitrary endpoint option. It is a deliberately small implementation, tested with a stdio client; full MCP conformance and live integration with every agent client are not claimed.
 
-The Bash hook uses a small policy rather than attempting a permissive shell allowlist. Suspicious patterns deny; simple recognized reads defer to native permissions; other commands require a scan and user review. Source changes between a scan and execution remain possible. Only an OS sandbox, execution broker, or immutable snapshot can enforce a stronger boundary.
+Shell adapters share a conservative policy: suspicious patterns deny, simple reads defer to native permissions, and other execution triggers a scan. Claude can request native review. Codex's strict adapter converts review cases to explicit denials and emits JSON denials on local check errors; native startup/timeout failures can continue. Neither adapter authorizes by unsupported output fields. Source can change between checking and execution; stronger isolation needs a sandbox/broker/snapshot.
 
 ## Pre-launch gate
 
@@ -53,16 +53,24 @@ The second inspection makes no new advisory requests and compares selected conte
 
 ## Explicit integration setup and diagnostics
 
-`integration.py` constructs two dedicated Claude user-hook groups from the current trusted interpreter/source paths. These commands require Python isolated mode and user invocation. `config_io.py` bounds reads, pins no-follow directories, checks file ownership/type/link count, and compares file identity/content before an atomic replace. A private original-byte backup precedes replacement; a cooperative lock limits collisions between setup writers. A noncooperating editor can still race the final check. Uninstall removes owned or exact legacy handlers from current settings rather than restoring an old snapshot over subsequent edits.
+`agents.py` declares selected-agent profile paths, contract references, failure/review capabilities, and canonical commands. `integration.py` builds two user-hook groups from trusted paths. Explicit isolated-Python setup uses `config_io.py`, dispatching to POSIX owner/mode/fcntl safeguards or native Windows owner/DACL/handle/lock safeguards. Both retain private original-byte backups, compare snapshots, and replace atomically within their documented limits. Uninstall edits current settings, preserving later unrelated changes.
 
 Configuration inspection compares canonical groups, arguments, failure policy, and root project hook-disable controls as data. The optional doctor probe reconstructs trusted argv independently of settings content, sanitizes its environment, and invokes only the guard for inert deny/read/error events. It does not call configured third-party hooks or a native client. Both setup and diagnostics report the minimum supported failure-policy version and leave actual client version/loading/enforcement unverified. None of these configuration-write operations is exposed through MCP or called as a side effect of scanning.
 
-The [CLI reference](CLI.md) describes command arguments and status fields. Explicit setup APIs use the chosen file or default home profile. Guided `setup` additionally honors the known `CLAUDE_CONFIG_DIR` environment path; complete native settings precedence and CLI profile discovery remain unimplemented. Moving the checkout/interpreter requires configuration review; running processes and absolute hook paths do not update themselves.
+The [CLI reference](CLI.md) defines arguments/statuses. Agent profiles honor `CODEX_HOME`/`CLAUDE_CONFIG_DIR` and explicit overrides; full native precedence/trust still requires verification. Moving the checkout/interpreter requires configuration review and restarts. No executable or rule updater runs automatically.
 
 ## First-time terminal workflow
 
-`onboarding.py` coordinates user-invoked `setup`, `demo`, and `open`. Setup previews the existing secure configuration editor, requires terminal consent for writes, and passes the original settings snapshot through to apply so detected prompt-time changes conflict. It uses the existing doctor/probe paths after applying settings and never promotes their result into verified native enforcement. The optional alias is printed with shell quoting; no executable wrapper or shell startup edit is installed.
+`onboarding.py` coordinates user-invoked `setup`, `demo`, and `open`. Setup previews the existing secure configuration editor, requires terminal consent for writes, and passes the original settings snapshot through to apply so detected prompt-time changes conflict. It uses the existing doctor/probe paths after applying settings and never promotes their result into verified native enforcement. An optional shell-quoted alias or PowerShell function is printed; no executable wrapper or shell startup edit is installed.
 
 `demo` exercises the same reconstructed hook protocol cases in an empty temporary project. No example command runs, project code loads, or advisory request occurs. `open` discovers a client only on the sanitized external PATH (or takes an explicit absolute client) and delegates to the existing launcher. A receipt formatter affects presentation only; high-priority/incomplete refusal, snapshot rechecks, and terminal challenges remain in the launch gate. All review metadata remains visible before the challenge.
 
 `presentation.py` formats readable scan/diagnostic/setup/launch results with bounded sanitized metadata and explicit missing-check explanations. `check --json`, legacy CLI JSON, MCP, and hook protocols retain their structured interfaces. No model call or third-party runtime dependency is added. See [Getting started](GETTING-STARTED.md) for the user journey and [Detailed usage](USAGE.md) for the expanded technical guide.
+
+## Native Windows boundary
+
+`windows_files.py` binds system APIs through stdlib ctypes, on Windows only. It restricts roots to local fixed NTFS, validates path components, opens children relative to held directory handles, rejects reparse/special objects, enumerates bounded native packets, and validates regular bounded reads. Read pins disallow write/delete sharing; secure settings-parent pins permit write sharing required by native rename while retaining handle identity. Settings ACLs conservatively accept only known entries, validated owners and scoped OWNER RIGHTS, with no foreign writes. New files have protected current-user/SYSTEM/Administrators ACLs.
+
+`windows_config.py` takes native byte-range locks, compares snapshot bytes/identity/ACLs, writes and flushes private backups/staging files, rechecks, and renames relative to the pinned parent. It reports an applied change if final file flush fails, and leaves directory durability explicitly unattested. It does not claim that NTFS or native agent sessions are sandboxed. Windows client launch is `.exe` only; batch shims are refused to avoid implicit shell interpretation.
+
+The gate rejects project-contained/nonexecutable POSIX `SHELL` values. On Windows it resets shell/system-directory variables using `GetSystemDirectoryW`, disables current-directory executable lookup, and removes `PSModulePath`. The Codex relay also obtains its fixed PowerShell location from that native API rather than inherited environment values.

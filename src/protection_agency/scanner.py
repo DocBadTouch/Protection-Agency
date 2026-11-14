@@ -9,7 +9,7 @@ import time
 
 from .dependencies import parse_inventory
 from .coverage import audit_inventories
-from .filesystem import read_project_file
+from .filesystem import read_project_file, normalize_root, directory_entries
 from .models import Report
 from .rules import scan_text
 from .startup import CONFIG_DIRS, FORCED_NAMES, inspect as inspect_startup
@@ -43,7 +43,7 @@ class Scanner:
     def __init__(self, root: Path, *, online: bool = False, osv_client=None,
                  max_files: int = 5000, max_bytes: int = 32 * 1024 * 1024,
                  max_seconds: float = 20):
-        self.root = root.resolve(strict=True)
+        self.root = normalize_root(root)
         if not self.root.is_dir():
             raise ValueError("scan root must be a directory")
         self.online = online
@@ -66,14 +66,15 @@ class Scanner:
         while pending:
             directory = pending.pop()
             try:
-                with os.scandir(directory) as children:
+                with directory_entries(self.root, directory.relative_to(self.root).as_posix()) as children:
                     for entry in children:
                         entries += 1
                         if entries > self.max_files * 8 or time.monotonic() - start > self.max_seconds:
                             report.inventory_gap("Traversal budget exceeded; coverage is incomplete")
                             pending.clear()
                             break
-                        relative = str(Path(entry.path).relative_to(self.root))
+                        child_path = directory / entry.name
+                        relative = child_path.relative_to(self.root).as_posix()
                         if entry.is_symlink():
                             report.gap(f"Symlink skipped: {relative}")
                             if inventory(relative) or entry.is_dir():
@@ -83,7 +84,7 @@ class Scanner:
                                 continue
                             if level != "deep" and entry.name in INSTALLED | GENERATED:
                                 continue
-                            pending.append(Path(entry.path))
+                            pending.append(child_path)
                         elif selected(relative, level):
                             paths.append(relative)
                             if len(paths) > self.max_files:

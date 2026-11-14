@@ -1,4 +1,4 @@
-"""User-invoked Claude hook setup and bounded diagnostics; no native client starts."""
+"""User-invoked agent hook setup and bounded diagnostics; no native client starts."""
 import copy
 import hashlib
 import json
@@ -6,10 +6,12 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tomllib
 
 from . import config_io, jsondata
-from .filesystem import read_project_file
+from .filesystem import read_project_file, normalize_root
 from .launcher import clean_environment
+from .agents import get_agent, codex_command
 
 MARKER = "Protection Agency security check"
 MINIMUM_CLIENT = "2.1.295"
@@ -17,9 +19,9 @@ EVENTS = ("SessionStart", "PreToolUse")
 
 
 def _locations(settings: Path, project: Path):
-    if os.name != "posix":
-        raise ValueError("configuration integration requires POSIX file protections")
-    settings, project = Path(settings), Path(project).resolve(strict=True)
+    if os.name not in {"posix", "nt"}:
+        raise ValueError("configuration integration requires a supported secure filesystem backend")
+    settings, project = Path(settings), normalize_root(project)
     if (not settings.is_absolute() or ".." in settings.parts or not project.is_dir()
             or settings.is_relative_to(project) or len(settings.name) > 128):
         raise ValueError("choose an absolute user settings file outside the project")
@@ -31,7 +33,11 @@ def _locations(settings: Path, project: Path):
     return settings, project, python, launcher
 
 
-def _handler(event: str, python: Path, launcher: Path, online: bool):
+def _handler(event: str, python: Path, launcher: Path, online: bool, agent="claude"):
+    if agent == "codex":
+        return {"type": "command", "command": codex_command(python, launcher, online),
+                "timeout": 90, "statusMessage": MARKER}
+    get_agent(agent)
     result = {"type": "command", "command": str(python),
               "args": ["-I", str(launcher), "hook", *(["--online"] if online else [])],
               "timeout": 90, "statusMessage": MARKER}
@@ -41,12 +47,7 @@ def _handler(event: str, python: Path, launcher: Path, online: bool):
 
 
 def _load(settings: Path):
-    fd = config_io.open_parent(settings.parent)
-    try:
-        snapshot = config_io.read(fd, settings.name)
-    finally:
-        if fd is not None:
-            os.close(fd)
+    snapshot = config_io.snapshot(settings)
     if snapshot.raw is None:
         return {}, snapshot
     data = jsondata.loads(snapshot.raw.decode("utf-8-sig"))
@@ -74,7 +75,7 @@ def _legacy(handler, event, python, launcher):
     return False
 
 
-def _strip(data, python, launcher):
+def _strip(data, python, launcher, agent="claude"):
     result = copy.deepcopy(data)
     removed = 0
     for event, groups in list(result.get("hooks", {}).items()):
@@ -85,7 +86,7 @@ def _strip(data, python, launcher):
             removed_in_group = 0
             for handler in group["hooks"]:
                 if handler.get("statusMessage") == MARKER or (
-                        event in EVENTS and _legacy(handler, event, python, launcher)):
+                        agent == "claude" and event in EVENTS and _legacy(handler, event, python, launcher)):
                     removed += 1
                     removed_in_event += 1
                     removed_in_group += 1
@@ -103,29 +104,31 @@ def _strip(data, python, launcher):
 
 
 def configure(operation: str, settings: Path, project: Path, *, online=False, dry_run=False,
-              expected_snapshot=None) -> dict:
+              expected_snapshot=None, agent="claude") -> dict:
+    adapter = get_agent(agent)
     if operation not in {"install", "uninstall"}:
         raise ValueError("unknown setup operation")
     if not sys.flags.isolated:
         raise ValueError("run trusted setup with Python -I")
     settings, project, python, launcher = _locations(settings, project)
     data, snapshot = _load(settings)
-    common = {"client": "claude", "scope": "user_settings_Bash_only", "live_client_enforcement": "not_verified",
-              "minimum_client_version": MINIMUM_CLIENT, "client_version": "not_checked"}
+    common = {"client": agent, "scope": "user_settings_Bash_only", "live_client_enforcement": "not_verified",
+              "minimum_client_version": adapter.version_reference, "client_version": "not_checked",
+              "native_review_supported": adapter.native_review_supported, "hook_error_behavior": adapter.hook_error_behavior}
     if expected_snapshot is not None and snapshot != expected_snapshot:
         return {**common, "status": "conflict", "changed": False,
                 "reason": "Settings changed after preview; inspect them and run setup again"}
     if operation == "install" and data.get("disableAllHooks") is True:
         return {**common, "status": "disabled", "changed": False,
                 "reason": "Settings explicitly disable hooks; setup will not change that choice"}
-    if operation == "install" and _project_controls(project):
-        return {**common, "status": "disabled_by_project", "changed": False,
-                "reason": "Project settings contain disableAllHooks; inspect the control before installing hooks"}
-    updated, removed = _strip(data, python, launcher)
+    if operation == "install" and _project_controls(project, agent=agent, settings=settings):
+        return {**common, "status": "disabled_by_agent_settings" if agent == "codex" else "disabled_by_project", "changed": False,
+                "reason": "Selected project or user configuration suppresses these hooks; inspect the native agent settings before installing"}
+    updated, removed = _strip(data, python, launcher, agent)
     if operation == "install":
         hooks = updated.setdefault("hooks", {})
         for event in EVENTS:
-            group = {"hooks": [_handler(event, python, launcher, online)]}
+            group = {"hooks": [_handler(event, python, launcher, online, agent)]}
             if event == "PreToolUse":
                 group["matcher"] = "Bash"
             hooks.setdefault(event, []).append(group)
@@ -147,7 +150,32 @@ def configure(operation: str, settings: Path, project: Path, *, online=False, dr
             "configuration_sha256": hashlib.sha256(raw).hexdigest() if result["changed"] else None}
 
 
-def _project_controls(project):
+def _project_controls(project, *, agent="claude", settings=None):
+    if agent == "codex":
+        paths = [(False, ".codex/config.toml")]
+        if settings is not None:
+            paths.append((True, settings.parent / "config.toml"))
+        for user, path in paths:
+            try:
+                raw = config_io.snapshot(path).raw if user else read_project_file(project, path, config_io.LIMIT)
+            except FileNotFoundError:
+                continue
+            if raw is None:
+                continue
+            data = tomllib.loads(raw.decode("utf-8-sig"))
+            features = data.get("features", {})
+            if not isinstance(features, dict):
+                raise ValueError("invalid Codex feature controls")
+            for key in ("hooks", "codex_hooks"):
+                if key in features and not isinstance(features[key], bool):
+                    raise ValueError("invalid Codex hook control")
+                if features.get(key) is False:
+                    return True
+            if "allow_managed_hooks_only" in data and not isinstance(data["allow_managed_hooks_only"], bool):
+                raise ValueError("invalid Codex managed hook control")
+            if data.get("allow_managed_hooks_only"):
+                return True
+        return False
     for relative in (".claude/settings.json", ".claude/settings.local.json"):
         try:
             raw = read_project_file(project, relative, config_io.LIMIT)
@@ -164,22 +192,22 @@ def _project_controls(project):
     return False
 
 
-def probe_protocol(project, python, launcher, *, online=False):
+def probe_protocol(project, python, launcher, *, online=False, agent="claude"):
     """Exercise only reconstructed trusted hook argv with inert, offline events."""
     if not sys.flags.isolated:
         raise ValueError("run trusted hook probes with Python -I")
-    handler = _handler("PreToolUse", python, launcher, online)
+    argv = [str(python), "-I", str(launcher), "hook", *(["--agent", "codex"] if agent == "codex" else []), *(["--online"] if online else [])]
     environment, _, _ = clean_environment(project, os.environ)
     cases = [
         ("known_malicious_install_denied", {"hook_event_name": "PreToolUse", "cwd": str(project),
          "tool_name": "Bash", "tool_input": {"command": "npm install cdeops@13.5.31"}}, "deny"),
         ("simple_read_keeps_native_permissions", {"hook_event_name": "PreToolUse", "cwd": str(project),
          "tool_name": "Bash", "tool_input": {"command": "pwd"}}, "no_decision"),
-        ("malformed_event_rejected", {}, "exit_two"),
+        ("malformed_event_rejected", {}, "deny" if agent == "codex" else "exit_two"),
     ]
     checks = []
     for name, event, expected in cases:
-        process = subprocess.run([handler["command"], *handler["args"]], input=json.dumps(event),
+        process = subprocess.run(argv, input=json.dumps(event),
                                  capture_output=True, text=True, cwd=project, env=environment, timeout=5, shell=False)
         if len(process.stdout) > 65536 or len(process.stderr) > 65536:
             raise ValueError("unexpected probe output")
@@ -196,10 +224,12 @@ def probe_protocol(project, python, launcher, *, online=False):
     return checks
 
 
-def inspect_configuration(settings: Path, project: Path, *, probe=False) -> dict:
-    result = {"status": "unsafe_or_invalid", "probe": "not_run", "client": "claude",
-              "scope": "user_settings_Bash_only", "minimum_client_version": MINIMUM_CLIENT,
-              "client_version": "not_checked", "live_client_enforcement": "not_verified"}
+def inspect_configuration(settings: Path, project: Path, *, probe=False, agent="claude") -> dict:
+    adapter = get_agent(agent)
+    result = {"status": "unsafe_or_invalid", "probe": "not_run", "client": agent,
+              "scope": "user_settings_Bash_only", "minimum_client_version": adapter.version_reference,
+              "client_version": "not_checked", "live_client_enforcement": "not_verified",
+              "native_review_supported": adapter.native_review_supported, "hook_error_behavior": adapter.hook_error_behavior}
     try:
         settings, project, python, launcher = _locations(settings, project)
         data, snapshot = _load(settings)
@@ -207,8 +237,8 @@ def inspect_configuration(settings: Path, project: Path, *, probe=False) -> dict
             return {**result, "status": "missing"}
         if data.get("disableAllHooks") is True:
             return {**result, "status": "disabled"}
-        if _project_controls(project):
-            return {**result, "status": "disabled_by_project"}
+        if _project_controls(project, agent=agent, settings=settings):
+            return {**result, "status": "disabled_by_agent_settings" if agent == "codex" else "disabled_by_project"}
         found = []
         legacy = False
         for event, groups in data.get("hooks", {}).items():
@@ -216,7 +246,7 @@ def inspect_configuration(settings: Path, project: Path, *, probe=False) -> dict
                 for handler in group["hooks"]:
                     if handler.get("statusMessage") == MARKER:
                         found.append((event, group, handler))
-                    elif event in EVENTS and _legacy(handler, event, python, launcher):
+                    elif agent == "claude" and event in EVENTS and _legacy(handler, event, python, launcher):
                         legacy = True
         if not found:
             return {**result, "status": "manual_configuration" if legacy else "missing"}
@@ -224,7 +254,7 @@ def inspect_configuration(settings: Path, project: Path, *, probe=False) -> dict
         if len(found) != 2 or {event for event, _, _ in found} != set(EVENTS):
             return {**result, "status": "modified"}
         for event, group, handler in found:
-            valid_mode = next((mode for mode in (False, True) if handler == _handler(event, python, launcher, mode)), None)
+            valid_mode = next((mode for mode in (False, True) if handler == _handler(event, python, launcher, mode, agent)), None)
             expected_group = {"hooks": [handler]}
             if event == "PreToolUse":
                 expected_group["matcher"] = "Bash"
@@ -237,7 +267,7 @@ def inspect_configuration(settings: Path, project: Path, *, probe=False) -> dict
         if probe:
             if not sys.flags.isolated:
                 return {**result, "probe": "requires_isolated_python"}
-            checks = probe_protocol(project, python, launcher, online=modes[0])
+            checks = probe_protocol(project, python, launcher, online=modes[0], agent=agent)
             if len(checks) != 3 or any(c["status"] != "passed" for c in checks):
                 return {**result, "probe": "failed"}
             if _load(settings)[1] != snapshot:

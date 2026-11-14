@@ -3,7 +3,6 @@ import re
 import shlex
 from dataclasses import replace
 from datetime import datetime, timezone
-from pathlib import PurePosixPath
 
 from .dependencies import NPM_VERSION, PY_VERSION, NPM_NAME, PY_NAME, public_registry
 from .intelligence import POLINRIDER_NPM, SOURCE
@@ -87,7 +86,11 @@ def command_targets(command: str) -> list[dict]:
         return []
     if not words:
         return []
-    executable = PurePosixPath(words[0]).name
+    executable = words[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    for suffix in (".exe", ".cmd", ".bat"):
+        if executable.endswith(suffix):
+            executable = executable[:-len(suffix)]
+            break
     args, ecosystem, single = words[1:], None, False
     if executable in {"npm", "pnpm", "yarn", "bun"} and args and args[0] in {"install", "i", "add"}:
         ecosystem, args = "npm", args[1:]

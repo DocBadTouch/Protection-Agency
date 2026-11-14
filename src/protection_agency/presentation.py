@@ -50,23 +50,27 @@ def scan_result(report, *, full=False):
 
 
 def setup_result(result):
+    client = "Codex" if result.get("client") == "codex" else "Claude"
     messages = {
-        "installed": "Claude user hooks installed.", "uninstalled": "Protection Agency hooks removed.",
+        "installed": client + " user hooks installed.", "uninstalled": "Protection Agency hooks removed.",
         "already_installed": "The requested hooks are already configured.",
         "not_installed": "No matching Protection Agency hooks were found; settings were not changed.",
         "would_install": "Preview: add or replace the two Protection Agency hook groups.",
         "would_uninstall": "Preview: remove Protection Agency hook handlers only.",
         "disabled": "Setup stopped: user settings explicitly disable hooks.",
         "disabled_by_project": "Setup stopped: project settings explicitly disable hooks.",
+        "disabled_by_agent_settings": "Setup stopped: selected project or user settings suppress this agent's hooks.",
         "conflict": "Setup stopped: settings changed or another setup holds the lock. Inspect current settings and retry.",
-        "applied_with_warning": "Settings were changed, but their directory could not be synced. Inspect the resulting file.",
+        "applied_with_warning": "Settings were changed, but a durability sync failed. Inspect the resulting file.",
     }
     lines = [messages.get(result["status"], "Setup did not establish a completed result.")]
     if result.get("backup"):
         lines.append("Private original-byte backup: " + label(result["backup"]))
     if result.get("changed"):
-        lines.append("Unrelated settings were preserved. Restart Claude after configuration changes.")
-    lines.append("Native Claude enforcement: not verified.")
+        lines.append("Unrelated settings were preserved. Restart the selected client after configuration changes.")
+    lines.append("Native client enforcement: not verified.")
+    if result.get("client") == "codex":
+        lines.append("Codex: strict review denials; hook errors/timeouts may continue. Native /hooks trust review is required.")
     return "\n".join(lines)
 
 
@@ -80,9 +84,11 @@ def doctor_result(result):
     if integration:
         lines.extend(["Hook configuration: " + label(integration["status"]),
                       "Trusted hook response test: " + label(integration["probe"]),
-                      "Required Claude version: " + integration["minimum_client_version"] + "+ (installed version not checked)."])
+                      "Contract version reference: " + integration["minimum_client_version"] + " (installed version not checked)."])
+        if integration.get("client") == "codex":
+            lines.append("Codex hook errors/timeouts may continue; review-needed commands are denied, since native 'ask' is unsupported.")
     lines.extend(label(warning) for warning in result.get("warnings", []))
-    lines.append("Native Claude enforcement: not verified. Confirm this profile and its hooks in the actual client.")
+    lines.append("Native client enforcement: not verified. Confirm this profile and its hooks in the actual client.")
     return "\n".join(lines)
 
 

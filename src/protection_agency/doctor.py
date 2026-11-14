@@ -10,16 +10,17 @@ from .policy import check_command
 from .rules import scan_text
 from .scanner import Scanner
 from .startup import inspect
+from .filesystem import normalize_root
 
 
-def diagnose(root: Path | None = None, *, settings: Path | None = None, probe_hooks=False) -> dict:
+def diagnose(root: Path | None = None, *, settings: Path | None = None, probe_hooks=False, agent="claude") -> dict:
     checks = []
 
     def add(name, passed):
         checks.append({"check": name, "status": "passed" if passed else "failed"})
 
     add("python_3_11_or_newer", sys.version_info >= (3, 11))
-    add("secure_posix_file_reads", hasattr(os, "O_NOFOLLOW") and os.open in os.supports_dir_fd)
+    add("secure_platform_file_reads", os.name == "nt" or (hasattr(os, "O_NOFOLLOW") and os.open in os.supports_dir_fd))
     add("known_malicious_install_classified_deny", check_command("npm install cdeops@13.5.31")["decision"] == "deny")
     documentation = scan_text("README.md", "Inert example: eval(atob('example'))")
     add("documentation_keeps_review_context", bool(documentation) and all(f.severity == "low" for f in documentation))
@@ -36,7 +37,7 @@ def diagnose(root: Path | None = None, *, settings: Path | None = None, probe_ho
     if not sys.flags.isolated:
         warnings.append("Use the trusted launcher with Python -I to isolate Python startup")
     if root is not None:
-        root = root.resolve(strict=True)
+        root = normalize_root(root)
         if not root.is_dir():
             raise ValueError("root must be a directory")
         if Path(__file__).resolve().is_relative_to(root):
@@ -46,8 +47,8 @@ def diagnose(root: Path | None = None, *, settings: Path | None = None, probe_ho
         if root is None:
             raise ValueError("configuration inspection requires an explicit project root")
         from .integration import inspect_configuration
-        integration = inspect_configuration(settings, root, probe=probe_hooks)
-        add("claude_user_hook_configuration", integration["status"] == "configured")
+        integration = inspect_configuration(settings, root, probe=probe_hooks, agent=agent)
+        add(agent + "_user_hook_configuration", integration["status"] == "configured")
         if probe_hooks:
             add("trusted_hook_protocol_probe", integration["probe"] == "passed")
     result = {"version": __version__, "status": "failed" if any(c["status"] == "failed" for c in checks) else "self_checks_passed",

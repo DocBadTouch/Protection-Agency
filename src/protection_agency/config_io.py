@@ -14,6 +14,18 @@ class Snapshot:
     identity: tuple | None
 
 
+def snapshot(path: Path) -> Snapshot:
+    if os.name == "nt":
+        from .windows_config import snapshot as windows_snapshot
+        return windows_snapshot(path)
+    fd = open_parent(path.parent)
+    try:
+        return read(fd, path.name)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def _identity(info):
     return (info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
@@ -90,6 +102,9 @@ def replace(path: Path, expected: Snapshot, raw: bytes) -> dict:
     Other editors need not honor the lock, so a final check/rename race remains.
     A failed post-rename directory sync is reported as applied with a warning.
     """
+    if os.name == "nt":
+        from .windows_config import replace as windows_replace
+        return windows_replace(path, expected, raw)
     import fcntl
     if len(raw) > LIMIT:
         raise ValueError("new configuration exceeds the read budget")
